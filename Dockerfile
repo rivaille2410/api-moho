@@ -6,6 +6,10 @@ RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 RUN npm ci
 COPY . .
+
+ENV DATABASE_URL="postgresql://user:password@localhost:5432/db"
+ENV DIRECT_URL="postgresql://user:password@localhost:5432/db"
+
 RUN npx prisma generate
 RUN npm run build
 
