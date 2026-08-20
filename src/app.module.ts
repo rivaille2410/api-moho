@@ -5,8 +5,11 @@ import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { ProductsModule } from './modules/products/products.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+
 import { envValidationSchema } from './config/env.validation';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 @Module({
@@ -18,6 +21,8 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     PrismaModule,
     AuthModule,
     UsersModule,
+    ProductsModule,
+    CategoriesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
