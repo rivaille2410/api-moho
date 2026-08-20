@@ -47,10 +47,32 @@ export class CloudinaryService {
     await this.cloudinary.uploader.destroy(publicId);
   }
 
-  /**
-   * Best-effort extraction of a Cloudinary public_id from a secure_url,
-   * e.g. https://res.cloudinary.com/demo/image/upload/v123/avatars/abc.jpg -> avatars/abc
-   */
+  async uploadProductImage(
+    file: Express.Multer.File,
+    folder = 'products',
+  ): Promise<UploadApiResponse> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = this.cloudinary.uploader.upload_stream(
+        {
+          folder,
+          resource_type: 'image',
+          transformation: [{ width: 1600, height: 1600, crop: 'limit' }],
+        },
+        (
+          error: UploadApiErrorResponse | undefined,
+          result: UploadApiResponse | undefined,
+        ) => {
+          if (error || !result) {
+            return reject(error);
+          }
+          resolve(result);
+        },
+      );
+
+      Readable.from(file.buffer).pipe(uploadStream);
+    });
+  }
+
   extractPublicId(url: string): string | null {
     const match = url.match(/\/upload\/(?:v\d+\/)?([^.]+)\.[a-zA-Z0-9]+$/);
     return match ? match[1] : null;
