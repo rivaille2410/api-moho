@@ -73,6 +73,32 @@ export class CloudinaryService {
     });
   }
 
+  async uploadContentImage(
+    file: Express.Multer.File,
+    folder = 'content',
+  ): Promise<UploadApiResponse> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = this.cloudinary.uploader.upload_stream(
+        {
+          folder,
+          resource_type: 'image',
+          transformation: [{ width: 1600, height: 1600, crop: 'limit' }],
+        },
+        (
+          error: UploadApiErrorResponse | undefined,
+          result: UploadApiResponse | undefined,
+        ) => {
+          if (error || !result) {
+            return reject(error);
+          }
+          resolve(result);
+        },
+      );
+
+      Readable.from(file.buffer).pipe(uploadStream);
+    });
+  }
+
   extractPublicId(url: string): string | null {
     const match = url.match(/\/upload\/(?:v\d+\/)?([^.]+)\.[a-zA-Z0-9]+$/);
     return match ? match[1] : null;

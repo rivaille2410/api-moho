@@ -5,6 +5,7 @@ import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 
@@ -18,9 +19,10 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
-    PrismaModule,
     AuthModule,
     UsersModule,
+    PrismaModule,
+    UploadsModule,
     ProductsModule,
     CategoriesModule,
   ],
