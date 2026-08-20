@@ -1,70 +1,6 @@
 import 'dotenv/config';
-import * as argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, Role, AuthProvider } from '@prisma/client';
-
-const FIRST_NAMES = [
-  'An',
-  'Bình',
-  'Chi',
-  'Dũng',
-  'Giang',
-  'Hà',
-  'Hải',
-  'Hùng',
-  'Huy',
-  'Khánh',
-  'Lan',
-  'Linh',
-  'Long',
-  'Mai',
-  'Minh',
-  'Nam',
-  'Ngọc',
-  'Nhung',
-  'Phong',
-  'Phương',
-  'Quân',
-  'Quang',
-  'Sơn',
-  'Thảo',
-  'Thắng',
-  'Thu',
-  'Thủy',
-  'Trang',
-  'Trung',
-  'Tuấn',
-  'Tú',
-  'Việt',
-  'Vy',
-  'Xuân',
-  'Yến',
-];
-const LAST_NAMES = [
-  'Nguyễn',
-  'Trần',
-  'Lê',
-  'Phạm',
-  'Hoàng',
-  'Huỳnh',
-  'Phan',
-  'Vũ',
-  'Võ',
-  'Đặng',
-  'Bùi',
-  'Đỗ',
-  'Hồ',
-  'Ngô',
-  'Dương',
-];
-
-function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function generateName(): string {
-  return `${randomItem(LAST_NAMES)} ${randomItem(FIRST_NAMES)}`;
-}
+import { PrismaClient, ProductStatus } from '@prisma/client';
 
 function slugify(name: string): string {
   return name
@@ -73,13 +9,204 @@ function slugify(name: string): string {
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'D')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.+|\.+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-const USER_COUNT = Number(process.env.SEED_USER_COUNT ?? 50);
-const DEFAULT_PASSWORD = process.env.SEED_USER_PASSWORD ?? 'Password123!';
-const EMAIL_DOMAIN = process.env.SEED_USER_EMAIL_DOMAIN ?? 'example.com';
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randomPick<T>(arr: T[]): T {
+  return arr[randomInt(0, arr.length - 1)];
+}
+
+function randomSample<T>(arr: T[], count: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, arr.length));
+}
+
+function roundPrice(value: number): number {
+  return Math.round(value / 10_000) * 10_000;
+}
+
+const STYLE_ADJECTIVES = [
+  'Hiện đại',
+  'Tối giản',
+  'Cổ điển',
+  'Sang trọng',
+  'Phong cách Bắc Âu',
+  'Phong cách Nhật Bản',
+  'Phong cách Indochine',
+  'Phong cách Industrial',
+  'Cao cấp',
+  'Thanh lịch',
+];
+
+const MATERIALS_POOL = [
+  'Gỗ sồi tự nhiên',
+  'Gỗ óc chó',
+  'Gỗ cao su',
+  'Gỗ công nghiệp phủ Melamine',
+  'Thép sơn tĩnh điện',
+  'Vải nỉ Hàn Quốc',
+  'Da PU cao cấp',
+  'Mây tự nhiên',
+  'Nhựa PP nguyên sinh',
+  'Kính cường lực',
+  'Đá cẩm thạch nhân tạo',
+  'Nhôm hợp kim',
+];
+
+const COLOR_VARIANTS = [
+  { name: 'Trắng', hex: '#F5F5F0' },
+  { name: 'Đen', hex: '#1A1A1A' },
+  { name: 'Nâu gỗ tự nhiên', hex: '#8B5E3C' },
+  { name: 'Be', hex: '#E8DCC8' },
+  { name: 'Xám', hex: '#8C8C8C' },
+  { name: 'Xanh rêu', hex: '#5B6B4E' },
+  { name: 'Vàng đồng', hex: '#B8860B' },
+  { name: 'Xanh navy', hex: '#1F2A44' },
+];
+
+const PRICE_RANGES: Record<string, [number, number]> = {
+  'Phòng khách': [1_500_000, 25_000_000],
+  'Phòng ngủ': [2_000_000, 30_000_000],
+  'Phòng ăn & Nhà bếp': [1_000_000, 20_000_000],
+  'Phòng làm việc': [800_000, 12_000_000],
+  'Nội thất phòng tắm': [500_000, 8_000_000],
+  'Ngoại thất & Sân vườn': [700_000, 15_000_000],
+  'Đèn & Chiếu sáng': [200_000, 5_000_000],
+  'Trang trí nội thất': [100_000, 3_000_000],
+  'Rèm & Thảm': [150_000, 4_000_000],
+  'Lưu trữ & Tủ kệ': [500_000, 10_000_000],
+  'Nội thất trẻ em': [800_000, 12_000_000],
+  'Nội thất văn phòng & Dự án': [1_000_000, 20_000_000],
+  'Vật liệu & Phụ kiện nội thất': [50_000, 2_000_000],
+};
+const DEFAULT_PRICE_RANGE: [number, number] = [500_000, 10_000_000];
+
+const HAS_DIMENSIONS = new Set([
+  'Phòng khách',
+  'Phòng ngủ',
+  'Phòng ăn & Nhà bếp',
+  'Phòng làm việc',
+  'Nội thất phòng tắm',
+  'Ngoại thất & Sân vườn',
+  'Lưu trữ & Tủ kệ',
+  'Nội thất trẻ em',
+  'Nội thất văn phòng & Dự án',
+]);
+
+const PRODUCTS_PER_CATEGORY = 3;
+
+function randomStatus(): ProductStatus {
+  const roll = Math.random();
+  if (roll < 0.75) return ProductStatus.ACTIVE;
+  if (roll < 0.9) return ProductStatus.DRAFT;
+  return ProductStatus.ARCHIVED;
+}
+
+async function generateUniqueSku(
+  prisma: PrismaClient,
+  categorySlug: string,
+): Promise<string> {
+  const prefix = categorySlug
+    .split('-')
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 4);
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const random = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const sku = `${prefix}-${random}`;
+    const existing = await prisma.product.findUnique({ where: { sku } });
+    if (!existing) return sku;
+  }
+
+  throw new Error(`Unable to generate unique SKU for prefix ${prefix}`);
+}
+
+async function generateUniqueSlug(
+  prisma: PrismaClient,
+  name: string,
+): Promise<string> {
+  const baseSlug = slugify(name);
+  let slug = baseSlug;
+  let suffix = 1;
+
+  while (await prisma.product.findUnique({ where: { slug } })) {
+    slug = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  return slug;
+}
+
+async function buildProductData(
+  prisma: PrismaClient,
+  category: { id: string; name: string; slug: string; parentName: string },
+) {
+  const adjective = randomPick(STYLE_ADJECTIVES);
+  const name = `${category.name} ${adjective}`;
+
+  const [minPrice, maxPrice] =
+    PRICE_RANGES[category.parentName] ?? DEFAULT_PRICE_RANGE;
+  const price = roundPrice(randomInt(minPrice, maxPrice));
+
+  const hasDiscount = Math.random() < 0.4;
+  const compareAtPrice = hasDiscount
+    ? roundPrice(price * (1 + randomInt(10, 30) / 100))
+    : undefined;
+
+  const hasDimensions = HAS_DIMENSIONS.has(category.parentName);
+  const dimensions = hasDimensions
+    ? {
+        length: randomInt(40, 220),
+        width: randomInt(30, 120),
+        height: randomInt(30, 200),
+      }
+    : {};
+
+  const materials = randomSample(MATERIALS_POOL, randomInt(1, 3)).map(
+    (material, i) => ({
+      label: i === 0 ? 'Chất liệu chính' : 'Chất liệu phụ',
+      value: material,
+      sortOrder: i,
+    }),
+  );
+
+  const status = randomStatus();
+
+  const colorVariants = randomSample(COLOR_VARIANTS, randomInt(2, 4));
+  const variants = colorVariants.map((color, i) => ({
+    name: color.name,
+    colorHex: color.hex,
+    priceOverride: undefined,
+    stock: status === ProductStatus.ARCHIVED ? 0 : randomInt(0, 50),
+    sortOrder: i,
+  }));
+
+  const sku = await generateUniqueSku(prisma, category.slug);
+  const slug = await generateUniqueSlug(prisma, name);
+
+  return {
+    name,
+    slug,
+    sku,
+    description: `${name} thuộc danh mục ${category.name}, chất liệu ${materials[0]?.value.toLowerCase() ?? 'cao cấp'}, phù hợp với không gian ${adjective.toLowerCase()}.`,
+    price,
+    compareAtPrice,
+    ...dimensions,
+    categoryId: category.id,
+    status,
+    soldCount:
+      status === ProductStatus.ACTIVE ? randomInt(0, 300) : randomInt(0, 20),
+    materials: { create: materials },
+    variants: { create: variants },
+  };
+}
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -91,41 +218,39 @@ async function main() {
   const prisma = new PrismaClient({ adapter });
 
   try {
-    const hashedPassword = await argon2.hash(DEFAULT_PASSWORD);
+    const leafCategories = await prisma.category.findMany({
+      where: { parentId: { not: null }, deletedAt: null },
+      include: { parent: true },
+    });
 
-    let created = 0;
-    let skipped = 0;
-
-    for (let i = 0; i < USER_COUNT; i++) {
-      const name = generateName();
-      const email = `${slugify(name)}.${i + 1}@${EMAIL_DOMAIN}`;
-
-      const existing = await prisma.user.findFirst({ where: { email } });
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
-      const role = Math.random() < 0.1 ? Role.ADMIN : Role.CUSTOMER;
-      const emailVerified = Math.random() < 0.8;
-
-      const user = await prisma.user.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-          role,
-          emailVerified,
-          provider: AuthProvider.LOCAL,
-        },
-      });
-
-      created++;
-      console.log(`  [${created}] ${user.email} (${role})`);
+    if (leafCategories.length === 0) {
+      console.log(
+        '⚠️  Chưa có danh mục con nào. Hãy chạy seed danh mục trước (seed-categories.ts).',
+      );
+      return;
     }
 
-    console.log(`✅ Đã tạo ${created} user, bỏ qua ${skipped} (đã tồn tại).`);
-    console.log(`ℹ️  Mật khẩu mặc định cho tất cả: ${DEFAULT_PASSWORD}`);
+    let created = 0;
+
+    for (const category of leafCategories) {
+      console.log(`\n📁 ${category.parent?.name} / ${category.name}`);
+
+      for (let i = 0; i < PRODUCTS_PER_CATEGORY; i++) {
+        const data = await buildProductData(prisma, {
+          id: category.id,
+          name: category.name,
+          slug: category.slug,
+          parentName: category.parent?.name ?? '',
+        });
+
+        await prisma.product.create({ data });
+        created++;
+        console.log(`  ✅ ${data.name} (${data.sku})`);
+      }
+    }
+
+    console.log(`\n✅ Đã tạo ${created} sản phẩm.`);
+    console.log('ℹ️  Ảnh sản phẩm chưa được seed, thêm sau qua API upload.');
   } finally {
     await prisma.$disconnect();
   }
