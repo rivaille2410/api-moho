@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 
@@ -15,16 +16,17 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 @Module({
   imports: [
+    AuthModule,
+    UsersModule,
+    PrismaModule,
+    ReviewsModule,
+    UploadsModule,
+    ProductsModule,
+    CategoriesModule,
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
-    AuthModule,
-    UsersModule,
-    PrismaModule,
-    UploadsModule,
-    ProductsModule,
-    CategoriesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
