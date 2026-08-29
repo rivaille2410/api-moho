@@ -22,7 +22,20 @@ const REVIEW_INCLUDE = {
   images: true,
   helpfulVotes: true,
   variant: true,
-  product: { select: { name: true, slug: true } },
+  _count: {
+    select: { comments: true },
+  },
+  product: {
+    select: {
+      name: true,
+      slug: true,
+      images: {
+        where: { isThumbnail: true },
+        select: { url: true },
+        take: 1,
+      },
+    },
+  },
 } satisfies Prisma.ReviewInclude;
 
 export interface ReviewWithStats {
@@ -232,6 +245,20 @@ export class ReviewsService {
     };
   }
 
+  async getReviewedProductIds(
+    userId: string,
+    productIds: string[],
+  ): Promise<Set<string>> {
+    const unique = [...new Set(productIds)];
+    if (unique.length === 0) return new Set();
+
+    const reviews = await this.prisma.review.findMany({
+      where: { userId, productId: { in: unique } },
+      select: { productId: true },
+    });
+    return new Set(reviews.map((r) => r.productId));
+  }
+
   async createByCustomer(
     slug: string,
     userId: string,
@@ -284,11 +311,34 @@ export class ReviewsService {
     return withStats;
   }
 
+  /**
+   * Toggle "helpful" vote cho một review, luôn được gọi từ route storefront
+   * (ReviewsPublicController) và bắt buộc đã đăng nhập (JwtAuthGuard).
+   *
+   * `slug` được truyền vào để đảm bảo reviewId thực sự thuộc về đúng product
+   * đang xem trên trang, tránh trường hợp client gọi nhầm/giả mạo slug khác
+   * nhưng vẫn toggle được helpful cho review của sản phẩm khác.
+   */
   async toggleHelpful(
+    slug: string,
     reviewId: string,
     userId: string,
   ): Promise<ReviewWithStats> {
-    await this.findByIdOrThrow(reviewId);
+    const product = await this.prisma.product.findFirst({
+      where: { slug, deletedAt: null },
+      select: { id: true },
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const review = await this.prisma.review.findFirst({
+      where: { id: reviewId, productId: product.id },
+      select: { id: true },
+    });
+    if (!review) {
+      throw new NotFoundException('Review not found on this product');
+    }
 
     const existing = await this.prisma.reviewHelpful.findUnique({
       where: { reviewId_userId: { reviewId, userId } },

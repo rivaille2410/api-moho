@@ -183,18 +183,18 @@ export class AuthService {
   }
 
   async refresh(userId: string, refreshToken: string) {
+    if (!userId) {
+      throw new UnauthorizedException({
+        code: AuthErrorCode.REFRESH_TOKEN_INVALID,
+        message: 'Invalid refresh token',
+      });
+    }
+
     const storedTokens = await this.prisma.refreshToken.findMany({
-      where: {
-        userId,
-        revoked: false,
-        expiresAt: {
-          gt: new Date(),
-        },
-      },
+      where: { userId, revoked: false, expiresAt: { gt: new Date() } },
     });
 
     const matched = await this.findMatchingToken(storedTokens, refreshToken);
-
     if (!matched) {
       throw new UnauthorizedException({
         code: AuthErrorCode.REFRESH_TOKEN_INVALID,
@@ -203,15 +203,11 @@ export class AuthService {
     }
 
     await this.prisma.refreshToken.update({
-      where: {
-        id: matched.id,
-      },
-      data: {
-        revoked: true,
-      },
+      where: { id: matched.id },
+      data: { revoked: true },
     });
 
-    const user = await this.usersService.findById(userId);
+    const user = await this.usersService.findById(matched.userId);
 
     if (!user) {
       throw new UnauthorizedException({
@@ -440,18 +436,17 @@ export class AuthService {
   private async findMatchingToken(
     tokens: {
       id: string;
+      userId: string;
       tokenHash: string;
     }[],
     rawToken: string,
   ) {
     for (const token of tokens) {
       const isMatch = await argon2.verify(token.tokenHash, rawToken);
-
       if (isMatch) {
         return token;
       }
     }
-
     return null;
   }
 

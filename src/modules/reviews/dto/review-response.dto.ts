@@ -23,6 +23,9 @@ class ReviewAuthorDto {
   @ApiPropertyOptional({ nullable: true })
   avatarUrl: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  email: string | null;
+
   @ApiProperty({
     description: 'Whether this review is linked to a real user account',
   })
@@ -48,11 +51,20 @@ class ReviewAuthorDto {
 class ReviewVariantInfoDto {
   @ApiProperty() label: string;
   @ApiProperty() value: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Hex color code for rendering a color swatch, e.g. "#1A1A1A"',
+  })
+  colorHex: string | null;
 }
 
 class ReviewProductDto {
   @ApiProperty() name: string;
   @ApiProperty() slug: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  thumbnailUrl: string | null;
 }
 
 export interface AuthorStats {
@@ -66,7 +78,8 @@ export type ReviewWithRelations = Review & {
   images: ReviewImage[];
   helpfulVotes: ReviewHelpful[];
   variant: ProductVariant | null;
-  product: { name: string; slug: string };
+  product: { name: string; slug: string; images: { url: string }[] };
+  _count?: { comments: number };
 };
 
 export class ReviewResponseDto {
@@ -89,25 +102,38 @@ export class ReviewResponseDto {
   helpfulCount: number;
 
   @ApiProperty({
-    description: 'Not supported yet — always 0 until a comment module exists',
+    description:
+      'Whether the currently authenticated user has marked this review as helpful. Always false for guests / unauthenticated requests.',
+  })
+  isHelpfulByCurrentUser: boolean;
+
+  @ApiProperty({
+    description:
+      'Total comments on this review, including replies (counts top-level comments + replies rows, soft-deleted comments included since they still occupy a row in the thread).',
   })
   commentCount: number;
 
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 
-  constructor(review: ReviewWithRelations, stats?: AuthorStats) {
+  constructor(
+    review: ReviewWithRelations,
+    stats?: AuthorStats,
+    currentUserId?: string,
+  ) {
     this.id = review.id;
     this.productId = review.productId;
     this.product = {
       name: review.product.name,
       slug: review.product.slug,
+      thumbnailUrl: review.product.images[0]?.url ?? null,
     };
     this.rating = review.rating;
     this.author = {
       userId: review.userId,
       name: review.authorName,
       avatarUrl: review.user?.avatar ?? null,
+      email: review.user?.email ?? null,
       isRegisteredUser: !!review.userId,
       memberSinceYears: stats?.memberSinceYears ?? 0,
       reviewCount: stats?.reviewCount ?? 0,
@@ -119,14 +145,20 @@ export class ReviewResponseDto {
     this.variantInfo = review.variant
       ? [
           {
-            label: 'Variant',
+            label: 'Màu',
             value: review.variantLabel ?? review.variant.name,
+            colorHex: review.variant.colorHex ?? null,
           },
         ]
       : undefined;
     this.usedForLabel = review.usedForLabel ?? null;
     this.helpfulCount = review.helpfulVotes?.length ?? 0;
-    this.commentCount = 0;
+    this.isHelpfulByCurrentUser = currentUserId
+      ? (review.helpfulVotes ?? []).some(
+          (vote) => vote.userId === currentUserId,
+        )
+      : false;
+    this.commentCount = review._count?.comments ?? 0;
     this.createdAt = review.createdAt;
     this.updatedAt = review.updatedAt;
   }
