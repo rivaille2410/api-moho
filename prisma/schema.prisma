@@ -35,12 +35,15 @@ model User {
   bannedAt      DateTime?
   refreshTokens RefreshToken[]
   reviews       Review[]
+  reviewComments ReviewComment[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   deletedAt     DateTime?
 
   @@index([deletedAt])
   @@map("users")
+
+  orders Order[]
 }
 
 model RefreshToken {
@@ -107,6 +110,8 @@ model Product {
   @@index([status])
   @@index([deletedAt])
   @@map("products")
+
+  orderItems OrderItem[]
 }
 
 model ProductMaterial {
@@ -139,6 +144,8 @@ model ProductVariant {
 
   @@index([productId])
   @@map("product_variants")
+
+  orderItems OrderItem[]
 }
 
 model ProductImage {
@@ -173,6 +180,7 @@ model Review {
   usedForLabel     String?
   verifiedPurchase Boolean         @default(false)
   helpfulVotes     ReviewHelpful[]
+  comments         ReviewComment[]
 
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
@@ -201,4 +209,93 @@ model ReviewImage {
   url      String
 
   @@map("review_images")
+}
+
+model ReviewComment {
+  id        String          @id @default(uuid())
+  reviewId  String
+  review    Review          @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User            @relation(fields: [userId], references: [id])
+  content   String          @db.Text
+
+  // One level of nesting only: replies always point at a top-level comment.
+  // Replying to a reply is flattened onto the root comment by the service.
+  parentId  String?
+  parent    ReviewComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   ReviewComment[] @relation("CommentReplies")
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  // Soft-deleted when the comment still has replies attached, so the thread
+  // stays intact ("Bình luận đã bị xóa" placeholder instead of a hard delete).
+  deletedAt DateTime?
+
+  @@index([reviewId])
+  @@index([parentId])
+  @@map("review_comments")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  COD
+  BANK_TRANSFER
+}
+
+model Order {
+  id              String        @id @default(uuid())
+  orderNumber     String        @unique
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  status          OrderStatus   @default(PENDING)
+  paymentMethod   PaymentMethod @default(COD)
+
+  subtotal        Decimal       @db.Decimal(12, 0)
+  shippingFee     Decimal       @db.Decimal(12, 0) @default(0)
+  discount        Decimal       @db.Decimal(12, 0) @default(0)
+  total           Decimal       @db.Decimal(12, 0)
+
+  recipientName   String
+  recipientPhone  String
+  shippingAddress String        @db.Text
+  note            String?       @db.Text
+  cancelReason    String?
+
+  items           OrderItem[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String          @id @default(uuid())
+  orderId      String
+  order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product         @relation(fields: [productId], references: [id])
+  variantId    String
+  variant      ProductVariant  @relation(fields: [variantId], references: [id])
+
+  productName  String
+  variantName  String
+  thumbnailUrl String?
+  price        Decimal         @db.Decimal(12, 0)
+  quantity     Int
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("order_items")
 }

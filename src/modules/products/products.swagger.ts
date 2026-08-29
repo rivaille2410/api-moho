@@ -19,6 +19,7 @@ import {
 import { applyDecorators } from '@nestjs/common';
 
 import { ProductResponseDto } from './dto/product-response.dto';
+import { ProductSlugResponseDto } from './dto/product-slug-response.dto';
 import { PaginatedProductsResponseDto } from './dto/paginated-products-response.dto';
 
 export function ApiListProducts() {
@@ -68,6 +69,17 @@ export function ApiGetPublicProductBySlug() {
     }),
     ApiOkResponse({ type: ProductResponseDto }),
     ApiNotFoundResponse({ description: 'Product not found' }),
+  );
+}
+
+export function ApiGetProductSlugs() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Get product slugs by ids',
+      description:
+        'Batch resolve product ids to their current slug — useful for linking from denormalized snapshots (e.g. order items) that only store productId. Ids that are archived, deleted, or not found are silently omitted from the response. No authentication required.',
+    }),
+    ApiOkResponse({ type: [ProductSlugResponseDto] }),
   );
 }
 

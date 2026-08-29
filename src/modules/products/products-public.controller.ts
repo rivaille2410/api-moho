@@ -2,6 +2,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Get, Query, Param, Controller } from '@nestjs/common';
 
 import {
+  ApiGetProductSlugs,
   ApiListPublicProducts,
   ApiGetRelatedProducts,
   ApiGetPublicProductBySlug,
@@ -11,7 +12,9 @@ import { ProductsService } from './products.service';
 import { Public } from '@/common/decorators/public.decorator';
 
 import { ProductResponseDto } from './dto/product-response.dto';
+import { GetProductSlugsDto } from './dto/get-product-slugs.dto';
 import { QueryPublicProductsDto } from './dto/query-public-products.dto';
+import { ProductSlugResponseDto } from './dto/product-slug-response.dto';
 
 @ApiTags('Public Products')
 @Public()
@@ -38,6 +41,13 @@ export class ProductsPublicController {
       data: data.map((product) => new ProductResponseDto(product)),
       meta,
     };
+  }
+
+  @Get('slugs')
+  @ApiGetProductSlugs()
+  async findSlugs(@Query() query: GetProductSlugsDto) {
+    const products = await this.productsService.findSlugsByIds(query.ids);
+    return products.map((p) => new ProductSlugResponseDto(p));
   }
 
   @Get(':slug/related')

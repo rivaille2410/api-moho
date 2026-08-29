@@ -17,21 +17,21 @@ import { ReviewResponseDto } from './dto/review-response.dto';
 export const ApiListReviews = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] List reviews' }),
+    ApiOperation({ summary: 'List reviews' }),
     ApiOkResponse({ type: PaginatedReviewsResponseDto }),
   );
 
 export const ApiCreateReview = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] Create a review' }),
+    ApiOperation({ summary: 'Create a review' }),
     ApiOkResponse({ type: ReviewResponseDto }),
   );
 
 export const ApiGetReviewById = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] Get a review by id' }),
+    ApiOperation({ summary: 'Get a review by id' }),
     ApiParam({ name: 'id' }),
     ApiOkResponse({ type: ReviewResponseDto }),
   );
@@ -39,7 +39,7 @@ export const ApiGetReviewById = () =>
 export const ApiUpdateReview = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] Update a review' }),
+    ApiOperation({ summary: 'Update a review' }),
     ApiParam({ name: 'id' }),
     ApiOkResponse({ type: ReviewResponseDto }),
   );
@@ -47,14 +47,14 @@ export const ApiUpdateReview = () =>
 export const ApiDeleteReview = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] Delete a review' }),
+    ApiOperation({ summary: 'Delete a review' }),
     ApiParam({ name: 'id' }),
   );
 
 export const ApiAddReviewImages = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] Add images to a review' }),
+    ApiOperation({ summary: 'Add images to a review' }),
     ApiParam({ name: 'id' }),
     ApiConsumes('multipart/form-data'),
     ApiBody({
@@ -74,7 +74,7 @@ export const ApiAddReviewImages = () =>
 export const ApiRemoveReviewImage = () =>
   applyDecorators(
     ApiBearerAuth(),
-    ApiOperation({ summary: '[Admin] Remove an image from a review' }),
+    ApiOperation({ summary: 'Remove an image from a review' }),
     ApiParam({ name: 'id' }),
     ApiParam({ name: 'imageId' }),
     ApiOkResponse({ type: ReviewResponseDto }),

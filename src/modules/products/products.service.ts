@@ -129,6 +129,17 @@ export class ProductsService {
     return this.withTotalStock(product);
   }
 
+  async findSlugsByIds(ids: string[]) {
+    return this.prisma.product.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: null,
+        status: ProductStatus.ACTIVE,
+      },
+      select: { id: true, slug: true },
+    });
+  }
+
   private encodeCursor(phase: 'category' | 'other', id: string): string {
     return Buffer.from(JSON.stringify({ phase, id })).toString('base64url');
   }
