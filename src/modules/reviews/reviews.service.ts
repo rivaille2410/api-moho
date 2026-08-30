@@ -17,11 +17,21 @@ import { QueryReviewsDto } from './dto/query-reviews.dto';
 import { CreateCustomerReviewDto } from './dto/create-customer-review.dto';
 import { AuthorStats, ReviewWithRelations } from './dto/review-response.dto';
 
+const COMMENT_PREVIEW_TAKE = 2;
+
 const REVIEW_INCLUDE = {
   user: true,
   images: true,
   helpfulVotes: true,
   variant: true,
+  comments: {
+    where: { parentId: null },
+    take: COMMENT_PREVIEW_TAKE,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: { select: { id: true, name: true, avatar: true } },
+    },
+  },
   _count: {
     select: { comments: true },
   },
@@ -311,14 +321,6 @@ export class ReviewsService {
     return withStats;
   }
 
-  /**
-   * Toggle "helpful" vote cho một review, luôn được gọi từ route storefront
-   * (ReviewsPublicController) và bắt buộc đã đăng nhập (JwtAuthGuard).
-   *
-   * `slug` được truyền vào để đảm bảo reviewId thực sự thuộc về đúng product
-   * đang xem trên trang, tránh trường hợp client gọi nhầm/giả mạo slug khác
-   * nhưng vẫn toggle được helpful cho review của sản phẩm khác.
-   */
   async toggleHelpful(
     slug: string,
     reviewId: string,

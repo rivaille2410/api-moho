@@ -3,6 +3,7 @@ import {
   Review,
   ReviewImage,
   ReviewHelpful,
+  ReviewComment,
   ProductVariant,
 } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -67,6 +68,36 @@ class ReviewProductDto {
   thumbnailUrl: string | null;
 }
 
+class ReviewCommentAuthorDto {
+  @ApiProperty() id: string;
+  @ApiProperty() name: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarUrl: string | null;
+}
+
+type ReviewCommentUser = Pick<User, 'id' | 'name' | 'avatar'>;
+
+class ReviewCommentPreviewDto {
+  @ApiProperty() id: string;
+  @ApiProperty() content: string;
+  @ApiProperty() createdAt: Date;
+
+  @ApiProperty({ type: ReviewCommentAuthorDto })
+  author: ReviewCommentAuthorDto;
+
+  constructor(comment: ReviewComment & { user: ReviewCommentUser }) {
+    this.id = comment.id;
+    this.content = comment.content;
+    this.createdAt = comment.createdAt;
+    this.author = {
+      id: comment.user.id,
+      name: comment.user.name,
+      avatarUrl: comment.user.avatar,
+    };
+  }
+}
+
 export interface AuthorStats {
   memberSinceYears: number;
   reviewCount: number;
@@ -79,6 +110,7 @@ export type ReviewWithRelations = Review & {
   helpfulVotes: ReviewHelpful[];
   variant: ProductVariant | null;
   product: { name: string; slug: string; images: { url: string }[] };
+  comments: (ReviewComment & { user: Pick<User, 'id' | 'name' | 'avatar'> })[];
   _count?: { comments: number };
 };
 
@@ -106,6 +138,13 @@ export class ReviewResponseDto {
       'Whether the currently authenticated user has marked this review as helpful. Always false for guests / unauthenticated requests.',
   })
   isHelpfulByCurrentUser: boolean;
+
+  @ApiProperty({
+    type: [ReviewCommentPreviewDto],
+    description:
+      'Preview of up to 2 most recent top-level comments (root comments only, no replies), ordered oldest-to-newest within the preview. Fetch the full paginated thread via GET /products/:slug/reviews/:reviewId/comments when commentCount exceeds this array length.',
+  })
+  comments: ReviewCommentPreviewDto[];
 
   @ApiProperty({
     description:
@@ -158,7 +197,13 @@ export class ReviewResponseDto {
           (vote) => vote.userId === currentUserId,
         )
       : false;
+
+    this.comments = (review.comments ?? [])
+      .slice()
+      .reverse()
+      .map((c) => new ReviewCommentPreviewDto(c));
     this.commentCount = review._count?.comments ?? 0;
+
     this.createdAt = review.createdAt;
     this.updatedAt = review.updatedAt;
   }
