@@ -5,6 +5,7 @@ import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { PostsModule } from './modules/posts/posts.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
@@ -19,6 +20,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 @Module({
   imports: [
     AuthModule,
+    PostsModule,
     UsersModule,
     PrismaModule,
     OrdersModule,

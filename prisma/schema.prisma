@@ -23,27 +23,27 @@ enum ProductStatus {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  name          String
-  email         String         @unique
-  password      String?
-  avatar        String?
-  googleId      String?        @unique
-  provider      AuthProvider   @default(LOCAL)
-  role          Role           @default(CUSTOMER)
-  emailVerified Boolean        @default(false)
-  bannedAt      DateTime?
-  refreshTokens RefreshToken[]
-  reviews       Review[]
+  id             String          @id @default(uuid())
+  name           String
+  email          String          @unique
+  password       String?
+  avatar         String?
+  googleId       String?         @unique
+  provider       AuthProvider    @default(LOCAL)
+  role           Role            @default(CUSTOMER)
+  emailVerified  Boolean         @default(false)
+  bannedAt       DateTime?
+  refreshTokens  RefreshToken[]
+  reviews        Review[]
   reviewComments ReviewComment[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  deletedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  orders Order[]
 
   @@index([deletedAt])
   @@map("users")
-
-  orders Order[]
 }
 
 model RefreshToken {
@@ -78,40 +78,40 @@ model Category {
 }
 
 model Product {
-  id             String            @id @default(uuid())
-  name           String
-  slug           String            @unique
-  sku            String            @unique
-  description    String?           @db.Text
+  id          String  @id @default(uuid())
+  name        String
+  slug        String  @unique
+  sku         String  @unique
+  description String? @db.Text
 
-  price          Decimal           @db.Decimal(12, 0)
-  compareAtPrice Decimal?          @db.Decimal(12, 0)
+  price          Decimal  @db.Decimal(12, 0)
+  compareAtPrice Decimal? @db.Decimal(12, 0)
 
-  length         Decimal?          @db.Decimal(6, 1)
-  width          Decimal?          @db.Decimal(6, 1)
-  height         Decimal?          @db.Decimal(6, 1)
-  materials      ProductMaterial[]
+  length    Decimal?          @db.Decimal(6, 1)
+  width     Decimal?          @db.Decimal(6, 1)
+  height    Decimal?          @db.Decimal(6, 1)
+  materials ProductMaterial[]
 
-  status         ProductStatus     @default(DRAFT)
-  soldCount      Int               @default(0)
+  status    ProductStatus @default(DRAFT)
+  soldCount Int           @default(0)
 
-  categoryId     String
-  category       Category          @relation(fields: [categoryId], references: [id])
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
 
-  images         ProductImage[]
-  variants       ProductVariant[]
-  reviews        Review[]
+  images   ProductImage[]
+  variants ProductVariant[]
+  reviews  Review[]
 
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  deletedAt      DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  orderItems OrderItem[]
 
   @@index([categoryId])
   @@index([status])
   @@index([deletedAt])
   @@map("products")
-
-  orderItems OrderItem[]
 }
 
 model ProductMaterial {
@@ -136,16 +136,16 @@ model ProductVariant {
   stock         Int      @default(0)
   sortOrder     Int      @default(0)
 
-  images        ProductImage[]
-  reviews       Review[]
+  images  ProductImage[]
+  reviews Review[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderItems OrderItem[]
 
   @@index([productId])
   @@map("product_variants")
-
-  orderItems OrderItem[]
 }
 
 model ProductImage {
@@ -164,15 +164,15 @@ model ProductImage {
 }
 
 model Review {
-  id               String        @id @default(uuid())
-  productId        String
-  product          Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userId           String?
-  user             User?         @relation(fields: [userId], references: [id])
-  authorName       String
-  rating           Int
-  content          String        @db.Text
-  images           ReviewImage[]
+  id         String        @id @default(uuid())
+  productId  String
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?         @relation(fields: [userId], references: [id])
+  authorName String
+  rating     Int
+  content    String        @db.Text
+  images     ReviewImage[]
 
   variantId        String?
   variant          ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
@@ -182,8 +182,8 @@ model Review {
   helpfulVotes     ReviewHelpful[]
   comments         ReviewComment[]
 
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([productId])
   @@index([variantId])
@@ -212,23 +212,19 @@ model ReviewImage {
 }
 
 model ReviewComment {
-  id        String          @id @default(uuid())
-  reviewId  String
-  review    Review          @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User            @relation(fields: [userId], references: [id])
-  content   String          @db.Text
+  id       String @id @default(uuid())
+  reviewId String
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  content  String @db.Text
 
-  // One level of nesting only: replies always point at a top-level comment.
-  // Replying to a reply is flattened onto the root comment by the service.
-  parentId  String?
-  parent    ReviewComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   ReviewComment[] @relation("CommentReplies")
+  parentId String?
+  parent   ReviewComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  ReviewComment[] @relation("CommentReplies")
 
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  // Soft-deleted when the comment still has replies attached, so the thread
-  // stays intact ("Bình luận đã bị xóa" placeholder instead of a hard delete).
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@index([reviewId])
@@ -251,28 +247,28 @@ enum PaymentMethod {
 }
 
 model Order {
-  id              String        @id @default(uuid())
-  orderNumber     String        @unique
-  userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  status          OrderStatus   @default(PENDING)
-  paymentMethod   PaymentMethod @default(COD)
+  id            String        @id @default(uuid())
+  orderNumber   String        @unique
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod @default(COD)
 
-  subtotal        Decimal       @db.Decimal(12, 0)
-  shippingFee     Decimal       @db.Decimal(12, 0) @default(0)
-  discount        Decimal       @db.Decimal(12, 0) @default(0)
-  total           Decimal       @db.Decimal(12, 0)
+  subtotal    Decimal @db.Decimal(12, 0)
+  shippingFee Decimal @default(0) @db.Decimal(12, 0)
+  discount    Decimal @default(0) @db.Decimal(12, 0)
+  total       Decimal @db.Decimal(12, 0)
 
   recipientName   String
   recipientPhone  String
-  shippingAddress String        @db.Text
-  note            String?       @db.Text
+  shippingAddress String  @db.Text
+  note            String? @db.Text
   cancelReason    String?
 
-  items           OrderItem[]
+  items OrderItem[]
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -280,22 +276,49 @@ model Order {
 }
 
 model OrderItem {
-  id           String          @id @default(uuid())
-  orderId      String
-  order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId    String
-  product      Product         @relation(fields: [productId], references: [id])
-  variantId    String
-  variant      ProductVariant  @relation(fields: [variantId], references: [id])
+  id        String         @id @default(uuid())
+  orderId   String
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product        @relation(fields: [productId], references: [id])
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
 
   productName  String
   variantName  String
   thumbnailUrl String?
-  price        Decimal         @db.Decimal(12, 0)
+  price        Decimal @db.Decimal(12, 0)
   quantity     Int
 
   @@index([orderId])
   @@index([productId])
   @@index([variantId])
   @@map("order_items")
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Post {
+  id           String  @id @default(uuid())
+  title        String
+  slug         String  @unique
+  excerpt      String?
+  thumbnailUrl String?
+  content      String  @db.Text
+
+  status      PostStatus @default(DRAFT)
+  publishedAt DateTime?
+  viewCount   Int        @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("posts")
 }
