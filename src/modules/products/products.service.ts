@@ -9,12 +9,15 @@ import * as ExcelJS from 'exceljs';
 import { Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
+import {
+  PublicProductSortBy,
+  QueryPublicProductsDto,
+} from './dto/query-public-products.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
-import { QueryPublicProductsDto } from './dto/query-public-products.dto';
 
 import { CloudinaryService } from '@/common/cloudinary/cloudinary.service';
 
@@ -89,13 +92,14 @@ export class ProductsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const where = this.buildPublicWhere(query);
+    const orderBy = this.buildPublicOrderBy(query.sortBy);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: PRODUCT_INCLUDE,
       }),
       this.prisma.product.count({ where }),
@@ -114,6 +118,50 @@ export class ProductsService {
         hasPreviousPage: page > 1,
       },
     };
+  }
+
+  /**
+   * Returns the distinct color names currently available across active,
+   * non-deleted products (optionally scoped to a category). Used to
+   * populate the color filter UI on the public storefront.
+   */
+  async getAvailableColorsPublic(categoryId?: string) {
+    const variants = await this.prisma.productVariant.findMany({
+      where: {
+        colorName: { not: null },
+        product: {
+          deletedAt: null,
+          status: ProductStatus.ACTIVE,
+          ...(categoryId && { categoryId }),
+        },
+      },
+      distinct: ['colorName'],
+      select: { colorName: true, colorHex: true },
+      orderBy: { colorName: 'asc' },
+    });
+
+    return variants.map((v) => ({
+      name: v.colorName as string,
+      hex: v.colorHex,
+    }));
+  }
+
+  private buildPublicOrderBy(
+    sortBy?: PublicProductSortBy,
+  ):
+    | Prisma.ProductOrderByWithRelationInput
+    | Prisma.ProductOrderByWithRelationInput[] {
+    switch (sortBy) {
+      case PublicProductSortBy.PRICE_ASC:
+        return { price: 'asc' };
+      case PublicProductSortBy.PRICE_DESC:
+        return { price: 'desc' };
+      case PublicProductSortBy.BEST_SELLING:
+        return [{ soldCount: 'desc' }, { id: 'asc' }];
+      case PublicProductSortBy.NEWEST:
+      default:
+        return { createdAt: 'desc' };
+    }
   }
 
   async findBySlugPublic(slug: string) {
@@ -300,19 +348,80 @@ export class ProductsService {
     };
   }
 
+  /**
+   * Builds the `variants` relation filter shared by admin and public
+   * product listing. Combines the "in stock / out of stock" condition
+   * with an optional color filter under a single `variants` key so the
+   * two conditions are ANDed together instead of one overwriting the
+   * other.
+   *
+   * Semantics when both are provided:
+   * - outOfStock = false -> at least one variant matches the color
+   *   filter AND has stock.
+   * - outOfStock = true  -> the product has at least one variant
+   *   matching the color filter (so the color actually exists on it),
+   *   but none of the variants matching that color filter have stock.
+   * - outOfStock undefined, colors provided -> at least one variant
+   *   matches the color filter, regardless of stock.
+   */
+  private buildVariantFilter(
+    outOfStock?: boolean,
+    colors?: string[],
+  ): Prisma.ProductWhereInput['variants'] | undefined {
+    const hasColors = !!colors?.length;
+
+    if (outOfStock === undefined && !hasColors) {
+      return undefined;
+    }
+
+    const colorCondition: Prisma.ProductVariantWhereInput = hasColors
+      ? { colorName: { in: colors } }
+      : {};
+
+    if (outOfStock === undefined) {
+      return { some: colorCondition };
+    }
+
+    if (outOfStock) {
+      return {
+        ...(hasColors && { some: colorCondition }),
+        none: { ...colorCondition, stock: { gt: 0 } },
+      };
+    }
+
+    return {
+      some: { ...colorCondition, stock: { gt: 0 } },
+    };
+  }
+
   private buildPublicWhere(
     query: QueryPublicProductsDto,
   ): Prisma.ProductWhereInput {
-    const { search, categoryId, outOfStock } = query;
+    const {
+      search,
+      categoryId,
+      outOfStock,
+      colors,
+      minPrice,
+      maxPrice,
+      onSale,
+    } = query;
+
+    const variantFilter = this.buildVariantFilter(outOfStock, colors);
 
     return {
       deletedAt: null,
       status: ProductStatus.ACTIVE,
       ...(categoryId && { categoryId }),
-      ...(outOfStock !== undefined && {
-        variants: outOfStock
-          ? { none: { stock: { gt: 0 } } }
-          : { some: { stock: { gt: 0 } } },
+      ...(variantFilter && { variants: variantFilter }),
+      ...(onSale && {
+        compareAtPrice: { not: null },
+      }),
+      ...((minPrice !== undefined || maxPrice !== undefined) && {
+        price: {
+          ...(minPrice !== undefined && { gte: minPrice }),
+          ...(maxPrice !== undefined && { lte: maxPrice }),
+        },
       }),
       ...(search && {
         OR: [
@@ -407,6 +516,7 @@ export class ProductsService {
                 create: dto.variants.map((v, i) => ({
                   name: v.name,
                   colorHex: v.colorHex,
+                  colorName: v.colorName,
                   priceOverride: v.priceOverride,
                   stock: v.stock,
                   sortOrder: v.sortOrder ?? i,
@@ -480,6 +590,7 @@ export class ProductsService {
         productId,
         name: dto.name,
         colorHex: dto.colorHex,
+        colorName: dto.colorName,
         priceOverride: dto.priceOverride,
         stock: dto.stock,
         sortOrder: dto.sortOrder ?? count,
@@ -618,16 +729,28 @@ export class ProductsService {
   }
 
   private buildWhere(query: QueryProductsDto): Prisma.ProductWhereInput {
-    const { search, status, categoryId, outOfStock } = query;
+    const {
+      search,
+      status,
+      categoryId,
+      outOfStock,
+      colors,
+      minPrice,
+      maxPrice,
+    } = query;
+
+    const variantFilter = this.buildVariantFilter(outOfStock, colors);
 
     return {
       deletedAt: null,
       ...(status && { status }),
       ...(categoryId && { categoryId }),
-      ...(outOfStock !== undefined && {
-        variants: outOfStock
-          ? { none: { stock: { gt: 0 } } }
-          : { some: { stock: { gt: 0 } } },
+      ...(variantFilter && { variants: variantFilter }),
+      ...((minPrice !== undefined || maxPrice !== undefined) && {
+        price: {
+          ...(minPrice !== undefined && { gte: minPrice }),
+          ...(maxPrice !== undefined && { lte: maxPrice }),
+        },
       }),
       ...(search && {
         OR: [
