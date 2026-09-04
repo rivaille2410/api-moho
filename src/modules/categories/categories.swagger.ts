@@ -14,6 +14,7 @@ import { applyDecorators } from '@nestjs/common';
 
 import { CategoryResponseDto } from './dto/category-response.dto';
 import { CategoryTreeNodeDto } from './dto/category-tree-node.dto';
+import { PublicCategoryResponseDto } from './dto/public-category-response.dto';
 
 export function ApiListCategories() {
   return applyDecorators(
@@ -27,6 +28,18 @@ export function ApiListCategories() {
     ApiForbiddenResponse({
       description: 'Only admins can access this resource',
     }),
+  );
+}
+
+export function ApiListPublicCategories() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'List public categories',
+      description:
+        'Retrieve categories visible to the public storefront, with optional filters.',
+    }),
+    ApiOkResponse({ type: [PublicCategoryResponseDto] }),
+    ApiBadRequestResponse({ description: 'Invalid query parameters' }),
   );
 }
 

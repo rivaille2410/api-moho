@@ -12,6 +12,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
 import { CategoryTreeNodeDto } from './dto/category-tree-node.dto';
+import { QueryPublicCategoriesDto } from './dto/query-public-categories.dto';
 
 const WITH_COUNT = {
   _count: { select: { products: true, children: true } },
@@ -51,6 +52,22 @@ export class CategoriesService {
     return this.prisma.category.findMany({
       where,
       include: WITH_COUNT,
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async findAllPublic(query: QueryPublicCategoriesDto) {
+    const { parentId, rootOnly } = query;
+
+    const where: Prisma.CategoryWhereInput = {
+      deletedAt: null,
+      ...(rootOnly && { parentId: null }),
+      ...(parentId && { parentId }),
+    };
+
+    return this.prisma.category.findMany({
+      where,
+      select: { id: true, name: true, slug: true, parentId: true },
       orderBy: { name: 'asc' },
     });
   }

@@ -1,6 +1,11 @@
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+
+export enum PublicPostSortBy {
+  NEWEST = 'newest',
+  POPULAR = 'popular',
+}
 
 export class QueryPublicPostsDto {
   @ApiPropertyOptional()
@@ -21,4 +26,12 @@ export class QueryPublicPostsDto {
   @IsInt()
   @Min(1)
   limit?: number;
+
+  @ApiPropertyOptional({
+    enum: PublicPostSortBy,
+    default: PublicPostSortBy.NEWEST,
+  })
+  @IsOptional()
+  @IsEnum(PublicPostSortBy)
+  sortBy?: PublicPostSortBy;
 }

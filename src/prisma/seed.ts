@@ -1,6 +1,12 @@
 import 'dotenv/config';
+import * as argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, ProductStatus } from '@prisma/client';
+import {
+  PrismaClient,
+  ProductStatus,
+  Role,
+  AuthProvider,
+} from '@prisma/client';
 
 function slugify(name: string): string {
   return name
@@ -28,6 +34,96 @@ function randomSample<T>(arr: T[], count: number): T[] {
 
 function roundPrice(value: number): number {
   return Math.round(value / 10_000) * 10_000;
+}
+
+async function seedAdmin(prisma: PrismaClient) {
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  const name = process.env.ADMIN_NAME ?? 'Admin';
+
+  if (!email || !password) {
+    console.log(
+      '⚠️  Bỏ qua seed admin: thiếu ADMIN_EMAIL / ADMIN_PASSWORD trong .env',
+    );
+    return;
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    console.log(`ℹ️  User admin (${email}) đã tồn tại, bỏ qua.\n`);
+    return;
+  }
+
+  const passwordHash = await argon2.hash(password);
+
+  await prisma.user.create({
+    data: {
+      name,
+      email,
+      password: passwordHash,
+      provider: AuthProvider.LOCAL,
+      role: Role.ADMIN,
+      emailVerified: true,
+    },
+  });
+
+  console.log(`✅ Đã tạo user admin: ${email}\n`);
+}
+
+const CATEGORY_TREE: Record<string, string[]> = {
+  'Phòng khách': ['Sofa', 'Bàn trà', 'Kệ tivi', 'Ghế thư giãn'],
+  'Phòng ngủ': ['Giường ngủ', 'Tủ quần áo', 'Bàn trang điểm', 'Nệm'],
+  'Phòng ăn & Nhà bếp': ['Bàn ăn', 'Ghế ăn', 'Tủ bếp', 'Kệ gia vị'],
+  'Phòng làm việc': ['Bàn làm việc', 'Ghế văn phòng', 'Kệ sách'],
+  'Nội thất phòng tắm': ['Tủ lavabo', 'Gương phòng tắm', 'Kệ phòng tắm'],
+  'Ngoại thất & Sân vườn': ['Bàn ghế sân vườn', 'Xích đu', 'Ô dù che nắng'],
+  'Đèn & Chiếu sáng': ['Đèn trần', 'Đèn bàn', 'Đèn sàn'],
+  'Trang trí nội thất': ['Tranh treo tường', 'Bình hoa', 'Gương trang trí'],
+  'Rèm & Thảm': ['Rèm cửa', 'Thảm trải sàn'],
+  'Lưu trữ & Tủ kệ': ['Kệ đa năng', 'Tủ lưu trữ', 'Kệ giày'],
+  'Nội thất trẻ em': ['Giường tầng trẻ em', 'Bàn học trẻ em', 'Tủ đồ chơi'],
+  'Nội thất văn phòng & Dự án': [
+    'Bàn họp',
+    'Ghế hội trường',
+    'Vách ngăn văn phòng',
+  ],
+  'Vật liệu & Phụ kiện nội thất': [
+    'Phụ kiện tủ',
+    'Tay nắm nội thất',
+    'Bánh xe đồ nội thất',
+  ],
+};
+
+async function seedCategories(prisma: PrismaClient) {
+  console.log('🗂️  Seeding categories...');
+  let createdCount = 0;
+
+  for (const [parentName, children] of Object.entries(CATEGORY_TREE)) {
+    const parentSlug = slugify(parentName);
+
+    const parent = await prisma.category.upsert({
+      where: { slug: parentSlug },
+      update: {},
+      create: { name: parentName, slug: parentSlug },
+    });
+
+    for (const childName of children) {
+      const childSlug = slugify(`${parentName}-${childName}`);
+
+      const existing = await prisma.category.findUnique({
+        where: { slug: childSlug },
+      });
+
+      if (!existing) {
+        await prisma.category.create({
+          data: { name: childName, slug: childSlug, parentId: parent.id },
+        });
+        createdCount++;
+      }
+    }
+  }
+
+  console.log(`✅ Categories ready (${createdCount} danh mục con mới tạo).\n`);
 }
 
 const STYLE_ADJECTIVES = [
@@ -183,6 +279,7 @@ async function buildProductData(
   const variants = colorVariants.map((color, i) => ({
     name: color.name,
     colorHex: color.hex,
+    colorName: color.name,
     priceOverride: undefined,
     stock: status === ProductStatus.ARCHIVED ? 0 : randomInt(0, 50),
     sortOrder: i,
@@ -208,6 +305,42 @@ async function buildProductData(
   };
 }
 
+async function seedProducts(prisma: PrismaClient) {
+  const leafCategories = await prisma.category.findMany({
+    where: { parentId: { not: null }, deletedAt: null },
+    include: { parent: true },
+  });
+
+  if (leafCategories.length === 0) {
+    console.log(
+      '⚠️  Vẫn chưa có danh mục con nào sau khi seed category, dừng lại.',
+    );
+    return;
+  }
+
+  let created = 0;
+
+  for (const category of leafCategories) {
+    console.log(`\n📁 ${category.parent?.name} / ${category.name}`);
+
+    for (let i = 0; i < PRODUCTS_PER_CATEGORY; i++) {
+      const data = await buildProductData(prisma, {
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        parentName: category.parent?.name ?? '',
+      });
+
+      await prisma.product.create({ data });
+      created++;
+      console.log(`  ✅ ${data.name} (${data.sku})`);
+    }
+  }
+
+  console.log(`\n✅ Đã tạo ${created} sản phẩm.`);
+  console.log('ℹ️  Ảnh sản phẩm chưa được seed, thêm sau qua API upload.');
+}
+
 async function main() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -218,39 +351,9 @@ async function main() {
   const prisma = new PrismaClient({ adapter });
 
   try {
-    const leafCategories = await prisma.category.findMany({
-      where: { parentId: { not: null }, deletedAt: null },
-      include: { parent: true },
-    });
-
-    if (leafCategories.length === 0) {
-      console.log(
-        '⚠️  Chưa có danh mục con nào. Hãy chạy seed danh mục trước (seed-categories.ts).',
-      );
-      return;
-    }
-
-    let created = 0;
-
-    for (const category of leafCategories) {
-      console.log(`\n📁 ${category.parent?.name} / ${category.name}`);
-
-      for (let i = 0; i < PRODUCTS_PER_CATEGORY; i++) {
-        const data = await buildProductData(prisma, {
-          id: category.id,
-          name: category.name,
-          slug: category.slug,
-          parentName: category.parent?.name ?? '',
-        });
-
-        await prisma.product.create({ data });
-        created++;
-        console.log(`  ✅ ${data.name} (${data.sku})`);
-      }
-    }
-
-    console.log(`\n✅ Đã tạo ${created} sản phẩm.`);
-    console.log('ℹ️  Ảnh sản phẩm chưa được seed, thêm sau qua API upload.');
+    await seedAdmin(prisma);
+    await seedCategories(prisma);
+    await seedProducts(prisma);
   } finally {
     await prisma.$disconnect();
   }

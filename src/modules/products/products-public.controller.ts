@@ -13,6 +13,7 @@ import { Public } from '@/common/decorators/public.decorator';
 
 import { ProductResponseDto } from './dto/product-response.dto';
 import { GetProductSlugsDto } from './dto/get-product-slugs.dto';
+import { GetAvailableColorsDto } from './dto/get-available-colors.dto';
 import { QueryPublicProductsDto } from './dto/query-public-products.dto';
 import { ProductSlugResponseDto } from './dto/product-slug-response.dto';
 
@@ -48,6 +49,13 @@ export class ProductsPublicController {
   async findSlugs(@Query() query: GetProductSlugsDto) {
     const products = await this.productsService.findSlugsByIds(query.ids);
     return products.map((p) => new ProductSlugResponseDto(p));
+  }
+
+  // NOTE: must stay above the ':slug' route below — otherwise Nest will
+  // match GET /public/products/colors as findBySlug({ slug: 'colors' }).
+  @Get('colors')
+  async getAvailableColors(@Query() query: GetAvailableColorsDto) {
+    return this.productsService.getAvailableColorsPublic(query.categoryId);
   }
 
   @Get(':slug/related')

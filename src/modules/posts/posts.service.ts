@@ -8,10 +8,13 @@ import slugify from 'slugify';
 import { Prisma, PostStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
+import {
+  PublicPostSortBy,
+  QueryPublicPostsDto,
+} from './dto/query-public-posts.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
-import { QueryPublicPostsDto } from './dto/query-public-posts.dto';
 
 @Injectable()
 export class PostsService {
@@ -51,13 +54,14 @@ export class PostsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const where = this.buildPublicWhere(query);
+    const orderBy = this.buildPublicOrderBy(query.sortBy);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.post.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { publishedAt: 'desc' },
+        orderBy,
       }),
       this.prisma.post.count({ where }),
     ]);
@@ -218,6 +222,18 @@ export class PostsService {
         ],
       }),
     };
+  }
+
+  private buildPublicOrderBy(
+    sortBy?: PublicPostSortBy,
+  ): Prisma.PostOrderByWithRelationInput {
+    switch (sortBy) {
+      case PublicPostSortBy.POPULAR:
+        return { viewCount: 'desc' };
+      case PublicPostSortBy.NEWEST:
+      default:
+        return { publishedAt: 'desc' };
+    }
   }
 
   private handleUniqueConstraintError(error: unknown): void {

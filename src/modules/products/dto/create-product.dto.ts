@@ -51,6 +51,12 @@ export class CreateProductVariantDto {
   @IsHexColor()
   colorHex?: string;
 
+  @ApiPropertyOptional({ example: 'Nâu gỗ tự nhiên', maxLength: 50 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  colorName?: string;
+
   @ApiPropertyOptional({
     example: 790000,
     description:
