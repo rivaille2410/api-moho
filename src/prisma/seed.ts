@@ -1,12 +1,15 @@
+import {
+  Role,
+  VoucherType,
+  VoucherScope,
+  PrismaClient,
+  AuthProvider,
+  ProductStatus,
+  VoucherStatus,
+} from '@prisma/client';
 import 'dotenv/config';
 import * as argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
-import {
-  PrismaClient,
-  ProductStatus,
-  Role,
-  AuthProvider,
-} from '@prisma/client';
 
 function slugify(name: string): string {
   return name
@@ -341,6 +344,260 @@ async function seedProducts(prisma: PrismaClient) {
   console.log('ℹ️  Ảnh sản phẩm chưa được seed, thêm sau qua API upload.');
 }
 
+type VoucherSeedDef = {
+  code: string;
+  name: string;
+  description?: string;
+  type: VoucherType;
+  value: number;
+  maxDiscount?: number;
+  minOrderValue?: number;
+  scope: VoucherScope;
+  usageLimit?: number;
+  usageLimitPerUser?: number;
+  startOffsetDays: number;
+  endOffsetDays: number;
+  isPublic?: boolean;
+  status: VoucherStatus;
+};
+
+const VOUCHER_DEFS: VoucherSeedDef[] = [
+  {
+    code: 'CHAOMOI10',
+    name: 'Chào mừng thành viên mới',
+    description: 'Giảm 10% cho đơn hàng đầu tiên, tối đa 100.000đ.',
+    type: VoucherType.PERCENT,
+    value: 10,
+    maxDiscount: 100_000,
+    minOrderValue: 300_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 500,
+    usageLimitPerUser: 1,
+    startOffsetDays: -30,
+    endOffsetDays: 60,
+    isPublic: true,
+    status: VoucherStatus.ACTIVE,
+  },
+  {
+    code: 'FREESHIP50',
+    name: 'Giảm phí vận chuyển',
+    description: 'Giảm trực tiếp 50.000đ cho đơn từ 500.000đ.',
+    type: VoucherType.FIXED,
+    value: 50_000,
+    minOrderValue: 500_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 1000,
+    usageLimitPerUser: 2,
+    startOffsetDays: -10,
+    endOffsetDays: 20,
+    isPublic: true,
+    status: VoucherStatus.ACTIVE,
+  },
+  {
+    code: 'SALE20PK',
+    name: 'Ưu đãi phòng khách',
+    description: 'Giảm 20% cho các danh mục phòng khách được chọn.',
+    type: VoucherType.PERCENT,
+    value: 20,
+    maxDiscount: 500_000,
+    minOrderValue: 1_000_000,
+    scope: VoucherScope.CATEGORY,
+    usageLimit: 200,
+    usageLimitPerUser: 1,
+    startOffsetDays: -5,
+    endOffsetDays: 15,
+    isPublic: true,
+    status: VoucherStatus.ACTIVE,
+  },
+  {
+    code: 'VIP500K',
+    name: 'Ưu đãi khách hàng thân thiết',
+    description: 'Giảm 500.000đ cho đơn hàng từ 5.000.000đ, không công khai.',
+    type: VoucherType.FIXED,
+    value: 500_000,
+    minOrderValue: 5_000_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 50,
+    usageLimitPerUser: 1,
+    startOffsetDays: -1,
+    endOffsetDays: 45,
+    isPublic: false,
+    status: VoucherStatus.ACTIVE,
+  },
+  {
+    code: 'FLASH15',
+    name: 'Flash sale sản phẩm nổi bật',
+    description:
+      'Giảm 15% cho một số sản phẩm được chọn trong thời gian giới hạn.',
+    type: VoucherType.PERCENT,
+    value: 15,
+    maxDiscount: 300_000,
+    minOrderValue: 0,
+    scope: VoucherScope.PRODUCT,
+    usageLimit: 100,
+    usageLimitPerUser: 1,
+    startOffsetDays: -2,
+    endOffsetDays: 3,
+    isPublic: true,
+    status: VoucherStatus.ACTIVE,
+  },
+  {
+    code: 'SUMMER2025',
+    name: 'Khuyến mãi hè đã kết thúc',
+    description: 'Chương trình giảm giá mùa hè, đã hết hạn.',
+    type: VoucherType.PERCENT,
+    value: 25,
+    maxDiscount: 400_000,
+    minOrderValue: 500_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 300,
+    usageLimitPerUser: 1,
+    startOffsetDays: -90,
+    endOffsetDays: -60,
+    isPublic: true,
+    status: VoucherStatus.EXPIRED,
+  },
+  {
+    code: 'TAMNGUNG',
+    name: 'Voucher tạm ngưng',
+    description: 'Voucher đang được tạm ngưng để điều chỉnh chính sách.',
+    type: VoucherType.FIXED,
+    value: 100_000,
+    minOrderValue: 300_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 100,
+    usageLimitPerUser: 1,
+    startOffsetDays: -20,
+    endOffsetDays: 40,
+    isPublic: true,
+    status: VoucherStatus.PAUSED,
+  },
+  {
+    code: 'BLACKFRIDAY',
+    name: 'Black Friday sắp diễn ra',
+    description: 'Chương trình khuyến mãi lớn nhất năm, sắp bắt đầu.',
+    type: VoucherType.PERCENT,
+    value: 30,
+    maxDiscount: 1_000_000,
+    minOrderValue: 1_000_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 1000,
+    usageLimitPerUser: 1,
+    startOffsetDays: 20,
+    endOffsetDays: 25,
+    isPublic: true,
+    status: VoucherStatus.DRAFT,
+  },
+  {
+    code: 'DEPLETED01',
+    name: 'Voucher đã hết lượt dùng',
+    description: 'Voucher đã được sử dụng hết số lượt cho phép.',
+    type: VoucherType.FIXED,
+    value: 200_000,
+    minOrderValue: 1_000_000,
+    scope: VoucherScope.ALL,
+    usageLimit: 10,
+    usageLimitPerUser: 1,
+    startOffsetDays: -15,
+    endOffsetDays: 15,
+    isPublic: true,
+    status: VoucherStatus.DEPLETED,
+  },
+];
+
+async function seedVouchers(prisma: PrismaClient) {
+  console.log('🎟️  Seeding vouchers...');
+
+  const categories = await prisma.category.findMany({
+    where: { deletedAt: null },
+  });
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+  });
+
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const def of VOUCHER_DEFS) {
+    const existing = await prisma.voucher.findUnique({
+      where: { code: def.code },
+    });
+
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    const startAt = new Date(now + def.startOffsetDays * day);
+    const endAt = new Date(now + def.endOffsetDays * day);
+
+    const usedCount =
+      def.status === VoucherStatus.DEPLETED
+        ? (def.usageLimit ?? 10)
+        : def.status === VoucherStatus.EXPIRED
+          ? randomInt(0, def.usageLimit ?? 50)
+          : randomInt(0, Math.floor((def.usageLimit ?? 100) * 0.3));
+
+    const voucher = await prisma.voucher.create({
+      data: {
+        code: def.code,
+        name: def.name,
+        description: def.description,
+        type: def.type,
+        value: def.value,
+        maxDiscount: def.maxDiscount,
+        minOrderValue: def.minOrderValue ?? 0,
+        scope: def.scope,
+        usageLimit: def.usageLimit,
+        usageLimitPerUser: def.usageLimitPerUser ?? 1,
+        usedCount,
+        startAt,
+        endAt,
+        status: def.status,
+        isPublic: def.isPublic ?? true,
+      },
+    });
+
+    if (def.scope === VoucherScope.CATEGORY && categories.length > 0) {
+      const picked = randomSample(
+        categories,
+        randomInt(1, Math.min(3, categories.length)),
+      );
+      await prisma.voucherCategory.createMany({
+        data: picked.map((c) => ({
+          voucherId: voucher.id,
+          categoryId: c.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    if (def.scope === VoucherScope.PRODUCT && products.length > 0) {
+      const picked = randomSample(
+        products,
+        randomInt(1, Math.min(5, products.length)),
+      );
+      await prisma.voucherProduct.createMany({
+        data: picked.map((p) => ({
+          voucherId: voucher.id,
+          productId: p.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    created++;
+    console.log(`  ✅ ${def.code} - ${def.name} (${def.status})`);
+  }
+
+  console.log(
+    `\n✅ Vouchers: đã tạo ${created}, bỏ qua ${skipped} (đã tồn tại).\n`,
+  );
+}
+
 async function main() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -354,6 +611,7 @@ async function main() {
     await seedAdmin(prisma);
     await seedCategories(prisma);
     await seedProducts(prisma);
+    await seedVouchers(prisma);
   } finally {
     await prisma.$disconnect();
   }
