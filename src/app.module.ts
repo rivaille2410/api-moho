@@ -11,6 +11,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CommentsModule } from './modules/comments/comments.module';
+import { VouchersModule } from './modules/vouchers/vouchers.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 
 import { envValidationSchema } from './config/env.validation';
@@ -26,6 +27,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     OrdersModule,
     ReviewsModule,
     UploadsModule,
+    VouchersModule,
     CommentsModule,
     ProductsModule,
     CategoriesModule,

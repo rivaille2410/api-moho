@@ -22,6 +22,45 @@ enum ProductStatus {
   ARCHIVED
 }
 
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  COD
+  BANK_TRANSFER
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VoucherType {
+  PERCENT
+  FIXED
+}
+
+enum VoucherScope {
+  ALL
+  CATEGORY
+  PRODUCT
+}
+
+enum VoucherStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+  DEPLETED
+}
+
 model User {
   id             String          @id @default(uuid())
   name           String
@@ -40,7 +79,8 @@ model User {
   updatedAt      DateTime        @updatedAt
   deletedAt      DateTime?
 
-  orders Order[]
+  orders        Order[]
+  voucherUsages VoucherUsage[]
 
   @@index([deletedAt])
   @@map("users")
@@ -67,6 +107,8 @@ model Category {
   parent   Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
   children Category[] @relation("CategoryToCategory")
   products Product[]
+
+  voucherCategories VoucherCategory[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -101,6 +143,8 @@ model Product {
   images   ProductImage[]
   variants ProductVariant[]
   reviews  Review[]
+
+  voucherProducts VoucherProduct[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -166,14 +210,14 @@ model ProductImage {
 }
 
 model Review {
-  id         String        @id @default(uuid())
+  id         String  @id @default(uuid())
   productId  String
-  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   userId     String?
-  user       User?         @relation(fields: [userId], references: [id])
+  user       User?   @relation(fields: [userId], references: [id])
   authorName String
   rating     Int
-  content    String        @db.Text
+  content    String  @db.Text
   images     ReviewImage[]
 
   variantId        String?
@@ -234,20 +278,6 @@ model ReviewComment {
   @@map("review_comments")
 }
 
-enum OrderStatus {
-  PENDING
-  CONFIRMED
-  PROCESSING
-  SHIPPED
-  DELIVERED
-  CANCELLED
-}
-
-enum PaymentMethod {
-  COD
-  BANK_TRANSFER
-}
-
 model Order {
   id            String        @id @default(uuid())
   orderNumber   String        @unique
@@ -267,6 +297,12 @@ model Order {
   note            String? @db.Text
   cancelReason    String?
 
+  voucherId   String?
+  voucher     Voucher? @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+  voucherCode String?
+
+  voucherUsage VoucherUsage?
+
   items OrderItem[]
 
   createdAt DateTime @default(now())
@@ -274,6 +310,7 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  @@index([voucherId])
   @@map("orders")
 }
 
@@ -298,12 +335,6 @@ model OrderItem {
   @@map("order_items")
 }
 
-enum PostStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-}
-
 model Post {
   id           String  @id @default(uuid())
   title        String
@@ -323,4 +354,89 @@ model Post {
   @@index([status])
   @@index([deletedAt])
   @@map("posts")
+}
+
+model Voucher {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  description String? @db.Text
+
+  type  VoucherType
+  value Decimal     @db.Decimal(12, 0)
+
+  maxDiscount Decimal? @db.Decimal(12, 0)
+
+  minOrderValue Decimal @default(0) @db.Decimal(12, 0)
+
+  scope VoucherScope @default(ALL)
+
+  categories VoucherCategory[]
+  products   VoucherProduct[]
+
+  usageLimit        Int?
+  usageLimitPerUser Int  @default(1)
+  usedCount         Int  @default(0)
+
+  startAt DateTime
+  endAt   DateTime
+
+  status   VoucherStatus @default(DRAFT)
+  isPublic Boolean       @default(true)
+
+  usages VoucherUsage[]
+  orders Order[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([code])
+  @@index([status])
+  @@index([startAt, endAt])
+  @@index([deletedAt])
+  @@map("vouchers")
+}
+
+model VoucherCategory {
+  id         String   @id @default(uuid())
+  voucherId  String
+  voucher    Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([voucherId, categoryId])
+  @@index([categoryId])
+  @@map("voucher_categories")
+}
+
+model VoucherProduct {
+  id        String  @id @default(uuid())
+  voucherId String
+  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([voucherId, productId])
+  @@index([productId])
+  @@map("voucher_products")
+}
+
+model VoucherUsage {
+  id        String  @id @default(uuid())
+  voucherId String
+  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  discountApplied Decimal @db.Decimal(12, 0)
+
+  createdAt DateTime @default(now())
+
+  @@index([voucherId, userId])
+  @@index([userId])
+  @@map("voucher_usages")
 }
