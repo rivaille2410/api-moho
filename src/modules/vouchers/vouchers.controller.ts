@@ -1,6 +1,7 @@
 import {
   Get,
   Req,
+  Res,
   Post,
   Body,
   Param,
@@ -15,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import type { Request } from 'express';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 
 import {
@@ -26,6 +28,7 @@ import {
   ApiValidateVoucher,
   ApiBulkDeleteVouchers,
   ApiUpdateVoucherStatus,
+  ApiExportVouchers,
 } from './vouchers.swagger';
 import { VouchersService } from './vouchers.service';
 import { Roles } from '@/modules/auth/decorators/roles.decorator';
@@ -75,6 +78,19 @@ export class VouchersController {
       voucher,
       this.vouchersService.computeEffectiveStatus(voucher),
     );
+  }
+
+  @Get('export')
+  @ApiExportVouchers()
+  async exportVouchers(@Query() query: QueryVouchersDto, @Res() res: Response) {
+    const buffer = await this.vouchersService.exportToExcel(query);
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="vouchers-${Date.now()}.xlsx"`,
+    });
+    res.send(buffer);
   }
 
   @Post('validate')

@@ -120,11 +120,6 @@ export class ProductsService {
     };
   }
 
-  /**
-   * Returns the distinct color names currently available across active,
-   * non-deleted products (optionally scoped to a category). Used to
-   * populate the color filter UI on the public storefront.
-   */
   async getAvailableColorsPublic(categoryId?: string) {
     const variants = await this.prisma.productVariant.findMany({
       where: {
@@ -348,22 +343,6 @@ export class ProductsService {
     };
   }
 
-  /**
-   * Builds the `variants` relation filter shared by admin and public
-   * product listing. Combines the "in stock / out of stock" condition
-   * with an optional color filter under a single `variants` key so the
-   * two conditions are ANDed together instead of one overwriting the
-   * other.
-   *
-   * Semantics when both are provided:
-   * - outOfStock = false -> at least one variant matches the color
-   *   filter AND has stock.
-   * - outOfStock = true  -> the product has at least one variant
-   *   matching the color filter (so the color actually exists on it),
-   *   but none of the variants matching that color filter have stock.
-   * - outOfStock undefined, colors provided -> at least one variant
-   *   matches the color filter, regardless of stock.
-   */
   private buildVariantFilter(
     outOfStock?: boolean,
     colors?: string[],

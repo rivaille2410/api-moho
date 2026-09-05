@@ -1,4 +1,5 @@
 import {
+  Res,
   Get,
   Post,
   Body,
@@ -13,6 +14,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 
 import {
@@ -22,6 +24,7 @@ import {
   ApiDeleteCategory,
   ApiGetCategoryTree,
   ApiGetCategoryById,
+  ApiExportCategories,
 } from './categories.swagger';
 import { CategoriesService } from './categories.service';
 
@@ -73,6 +76,22 @@ export class CategoriesController {
   async create(@Body() dto: CreateCategoryDto) {
     const category = await this.categoriesService.create(dto);
     return new CategoryResponseDto(category);
+  }
+
+  @Get('export')
+  @ApiExportCategories()
+  async exportCategories(
+    @Query() query: QueryCategoriesDto,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.categoriesService.exportToExcel(query);
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="categories-${Date.now()}.xlsx"`,
+    });
+    res.send(buffer);
   }
 
   @Patch(':id')

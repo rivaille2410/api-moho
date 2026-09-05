@@ -1,6 +1,7 @@
 import {
   Get,
   Req,
+  Res,
   Post,
   Body,
   Param,
@@ -11,6 +12,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -23,6 +25,7 @@ import {
   ApiCreateOrder,
   ApiGetOrderById,
   ApiListMyOrders,
+  ApiExportOrders,
   ApiGetMyOrderById,
   ApiUpdateOrderStatus,
 } from './orders.swagger';
@@ -37,8 +40,6 @@ import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
-  // ---- Admin ----
-
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
@@ -46,6 +47,21 @@ export class OrdersController {
   async findAll(@Query() query: QueryOrdersDto) {
     const { data, meta } = await this.ordersService.findAll(query);
     return { data: data.map((o) => new OrderResponseDto(o)), meta };
+  }
+
+  @Get('export')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiExportOrders()
+  async exportOrders(@Query() query: QueryOrdersDto, @Res() res: Response) {
+    const buffer = await this.ordersService.exportToExcel(query);
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="orders-${Date.now()}.xlsx"`,
+    });
+    res.send(buffer);
   }
 
   @Get(':id')
@@ -68,8 +84,6 @@ export class OrdersController {
     const order = await this.ordersService.updateStatus(id, dto);
     return new OrderResponseDto(order);
   }
-
-  // ---- Customer ----
 
   @Post()
   @UseGuards(JwtAuthGuard)

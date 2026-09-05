@@ -1,5 +1,6 @@
 import {
   Get,
+  Res,
   Post,
   Body,
   Param,
@@ -13,6 +14,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 
 import {
@@ -23,6 +25,7 @@ import {
   ApiGetPostById,
   ApiBulkDeletePosts,
   ApiUpdatePostStatus,
+  ApiExportPosts,
 } from './posts.swagger';
 import { PostsService } from './posts.service';
 import { Roles } from '@/modules/auth/decorators/roles.decorator';
@@ -60,6 +63,19 @@ export class PostsController {
   async create(@Body() dto: CreatePostDto) {
     const post = await this.postsService.create(dto);
     return new PostResponseDto(post);
+  }
+
+  @Get('export')
+  @ApiExportPosts()
+  async exportPosts(@Query() query: QueryPostsDto, @Res() res: Response) {
+    const buffer = await this.postsService.exportToExcel(query);
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="posts-${Date.now()}.xlsx"`,
+    });
+    res.send(buffer);
   }
 
   @Get(':id')

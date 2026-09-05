@@ -1,4 +1,6 @@
 import {
+  ApiProduces,
+  ApiResponse,
   ApiOperation,
   ApiOkResponse,
   ApiBearerAuth,
@@ -89,6 +91,36 @@ export function ApiCreateCategory() {
     ApiNotFoundResponse({ description: 'Parent category not found' }),
     ApiConflictResponse({
       description: 'A category with a similar name already exists',
+    }),
+  );
+}
+
+export function ApiExportCategories() {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Export categories to Excel',
+      description:
+        'Export the filtered list of categories (search/parentId) to an .xlsx file. Product count reflects non-deleted products in each category. Requires admin role. Not limited by pagination — returns all matching records, capped at 20,000 rows.',
+    }),
+    ApiProduces(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ),
+    ApiResponse({
+      status: 200,
+      description: 'Excel file (.xlsx) containing the filtered category list',
+      content: {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+          schema: { type: 'string', format: 'binary' },
+        },
+      },
+    }),
+    ApiBadRequestResponse({
+      description: 'Export exceeds the maximum allowed row count',
+    }),
+    ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
     }),
   );
 }
