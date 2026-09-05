@@ -1,5 +1,6 @@
 import {
   ApiResponse,
+  ApiProduces,
   ApiOperation,
   ApiOkResponse,
   ApiBearerAuth,
@@ -68,6 +69,36 @@ export function ApiCreatePost() {
     }),
     ApiBadRequestResponse({ description: 'Validation failed' }),
     ApiConflictResponse({ description: 'Slug is already in use' }),
+  );
+}
+
+export function ApiExportPosts() {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Export posts to Excel',
+      description:
+        'Export the filtered list of posts (search/status) to an .xlsx file. Requires admin role. Not limited by pagination — returns all matching records, capped at 20,000 rows.',
+    }),
+    ApiProduces(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ),
+    ApiResponse({
+      status: 200,
+      description: 'Excel file (.xlsx) containing the filtered post list',
+      content: {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+          schema: { type: 'string', format: 'binary' },
+        },
+      },
+    }),
+    ApiBadRequestResponse({
+      description: 'Export exceeds the maximum allowed row count',
+    }),
+    ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
   );
 }
 

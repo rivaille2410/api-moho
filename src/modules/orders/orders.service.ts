@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import * as ExcelJS from 'exceljs';
 import { Prisma, OrderStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -204,6 +205,74 @@ export class OrdersService {
 
       return order;
     });
+  }
+
+  async exportToExcel(query: QueryOrdersDto): Promise<Buffer> {
+    const where = this.buildWhere(query);
+
+    const MAX_EXPORT_ROWS = 20000;
+    const totalItems = await this.prisma.order.count({ where });
+    if (totalItems > MAX_EXPORT_ROWS) {
+      throw new BadRequestException({
+        code: 'EXPORT_TOO_LARGE',
+        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
+      });
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { items: true },
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Orders');
+
+    sheet.columns = [
+      { header: 'Mã đơn', key: 'orderNumber', width: 22 },
+      { header: 'Người đặt', key: 'recipientName', width: 25 },
+      { header: 'Số điện thoại', key: 'recipientPhone', width: 15 },
+      { header: 'Số sản phẩm', key: 'itemCount', width: 12 },
+      { header: 'Tạm tính', key: 'subtotal', width: 15 },
+      { header: 'Giảm giá', key: 'discount', width: 15 },
+      { header: 'Tổng tiền', key: 'total', width: 15 },
+      { header: 'Thanh toán', key: 'paymentMethod', width: 18 },
+      { header: 'Trạng thái', key: 'status', width: 15 },
+      { header: 'Ngày đặt', key: 'createdAt', width: 20 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+
+    const statusLabel: Record<OrderStatus, string> = {
+      PENDING: 'Chờ xác nhận',
+      CONFIRMED: 'Đã xác nhận',
+      PROCESSING: 'Đang xử lý',
+      SHIPPED: 'Đang giao',
+      DELIVERED: 'Đã giao',
+      CANCELLED: 'Đã huỷ',
+    };
+
+    const paymentLabel: Record<string, string> = {
+      COD: 'Thanh toán khi nhận hàng',
+      BANK_TRANSFER: 'Chuyển khoản',
+    };
+
+    orders.forEach((order) => {
+      sheet.addRow({
+        orderNumber: order.orderNumber,
+        recipientName: order.recipientName,
+        recipientPhone: order.recipientPhone,
+        itemCount: order.items.length,
+        subtotal: order.subtotal.toString(),
+        discount: order.discount.toString(),
+        total: order.total.toString(),
+        paymentMethod: paymentLabel[order.paymentMethod] ?? order.paymentMethod,
+        status: statusLabel[order.status],
+        createdAt: order.createdAt.toLocaleDateString('vi-VN'),
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
   }
 
   async updateStatus(

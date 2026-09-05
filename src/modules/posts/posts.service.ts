@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import slugify from 'slugify';
+import * as ExcelJS from 'exceljs';
 import { Prisma, PostStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -104,6 +105,57 @@ export class PostsService {
       this.handleUniqueConstraintError(error);
       throw error;
     }
+  }
+
+  async exportToExcel(query: QueryPostsDto): Promise<Buffer> {
+    const where = this.buildWhere(query);
+
+    const MAX_EXPORT_ROWS = 20000;
+    const totalItems = await this.prisma.post.count({ where });
+    if (totalItems > MAX_EXPORT_ROWS) {
+      throw new BadRequestException({
+        code: 'EXPORT_TOO_LARGE',
+        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
+      });
+    }
+
+    const posts = await this.prisma.post.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Posts');
+
+    sheet.columns = [
+      { header: 'Tiêu đề', key: 'title', width: 35 },
+      { header: 'Lượt xem', key: 'viewCount', width: 12 },
+      { header: 'Trạng thái', key: 'status', width: 15 },
+      { header: 'Ngày đăng', key: 'publishedAt', width: 20 },
+      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+
+    const statusLabel: Record<PostStatus, string> = {
+      DRAFT: 'Bản nháp',
+      PUBLISHED: 'Đã đăng',
+      ARCHIVED: 'Đã lưu trữ',
+    };
+
+    posts.forEach((post) => {
+      sheet.addRow({
+        title: post.title,
+        viewCount: post.viewCount,
+        status: statusLabel[post.status],
+        publishedAt: post.publishedAt
+          ? post.publishedAt.toLocaleDateString('vi-VN')
+          : 'Chưa đăng',
+        createdAt: post.createdAt.toLocaleDateString('vi-VN'),
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
   }
 
   async update(id: string, dto: UpdatePostDto) {

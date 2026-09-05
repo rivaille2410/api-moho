@@ -11,6 +11,7 @@ import {
   VoucherScope,
   VoucherStatus,
 } from '@prisma/client';
+import * as ExcelJS from 'exceljs';
 import { PrismaService } from '@/prisma/prisma.service';
 
 import { QueryVouchersDto } from './dto/query-vouchers.dto';
@@ -102,6 +103,83 @@ export class VouchersService {
       this.handleUniqueConstraintError(error);
       throw error;
     }
+  }
+
+  async exportToExcel(query: QueryVouchersDto): Promise<Buffer> {
+    const where = this.buildWhere(query);
+
+    const MAX_EXPORT_ROWS = 20000;
+    const totalItems = await this.prisma.voucher.count({ where });
+    if (totalItems > MAX_EXPORT_ROWS) {
+      throw new BadRequestException({
+        code: 'EXPORT_TOO_LARGE',
+        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
+      });
+    }
+
+    const vouchers = await this.prisma.voucher.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Vouchers');
+
+    sheet.columns = [
+      { header: 'Mã voucher', key: 'code', width: 18 },
+      { header: 'Tên voucher', key: 'name', width: 28 },
+      { header: 'Loại', key: 'type', width: 15 },
+      { header: 'Giá trị', key: 'value', width: 15 },
+      { header: 'Phạm vi', key: 'scope', width: 15 },
+      { header: 'Đã dùng', key: 'usedCount', width: 12 },
+      { header: 'Giới hạn', key: 'usageLimit', width: 12 },
+      { header: 'Trạng thái', key: 'status', width: 15 },
+      { header: 'Bắt đầu', key: 'startAt', width: 20 },
+      { header: 'Hết hạn', key: 'endAt', width: 20 },
+      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+
+    const typeLabel: Record<VoucherType, string> = {
+      PERCENT: 'Phần trăm (%)',
+      FIXED: 'Số tiền cố định',
+    };
+
+    const scopeLabel: Record<VoucherScope, string> = {
+      ALL: 'Toàn shop',
+      CATEGORY: 'Theo danh mục',
+      PRODUCT: 'Theo sản phẩm',
+    };
+
+    const statusLabel: Record<VoucherStatus, string> = {
+      DRAFT: 'Bản nháp',
+      ACTIVE: 'Đang chạy',
+      PAUSED: 'Tạm dừng',
+      EXPIRED: 'Hết hạn',
+      DEPLETED: 'Hết lượt',
+    };
+
+    vouchers.forEach((voucher) => {
+      sheet.addRow({
+        code: voucher.code,
+        name: voucher.name,
+        type: typeLabel[voucher.type],
+        value:
+          voucher.type === 'PERCENT'
+            ? `${voucher.value.toString()}%`
+            : voucher.value.toString(),
+        scope: scopeLabel[voucher.scope],
+        usedCount: voucher.usedCount,
+        usageLimit: voucher.usageLimit ?? 'Không giới hạn',
+        status: statusLabel[voucher.status],
+        startAt: voucher.startAt.toLocaleDateString('vi-VN'),
+        endAt: voucher.endAt.toLocaleDateString('vi-VN'),
+        createdAt: voucher.createdAt.toLocaleDateString('vi-VN'),
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
   }
 
   async update(id: string, dto: UpdateVoucherDto) {

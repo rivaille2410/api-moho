@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import slugify from 'slugify';
+import * as ExcelJS from 'exceljs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -38,16 +39,7 @@ export class CategoriesService {
   }
 
   async findAll(query: QueryCategoriesDto) {
-    const { search, parentId, rootOnly } = query;
-
-    const where: Prisma.CategoryWhereInput = {
-      deletedAt: null,
-      ...(rootOnly && { parentId: null }),
-      ...(parentId && { parentId }),
-      ...(search && {
-        name: { contains: search, mode: Prisma.QueryMode.insensitive },
-      }),
-    };
+    const where = this.buildWhere(query);
 
     return this.prisma.category.findMany({
       where,
@@ -122,6 +114,53 @@ export class CategoriesService {
       this.handleUniqueConstraintError(error);
       throw error;
     }
+  }
+
+  async exportToExcel(query: QueryCategoriesDto): Promise<Buffer> {
+    const where = this.buildWhere(query);
+
+    const MAX_EXPORT_ROWS = 20000;
+    const totalItems = await this.prisma.category.count({ where });
+    if (totalItems > MAX_EXPORT_ROWS) {
+      throw new BadRequestException({
+        code: 'EXPORT_TOO_LARGE',
+        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
+      });
+    }
+
+    const categories = await this.prisma.category.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        parent: { select: { name: true } },
+        _count: { select: { products: true } },
+      },
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Categories');
+
+    sheet.columns = [
+      { header: 'Tên danh mục', key: 'name', width: 30 },
+      { header: 'Slug', key: 'slug', width: 25 },
+      { header: 'Danh mục cha', key: 'parent', width: 25 },
+      { header: 'Số sản phẩm', key: 'productCount', width: 15 },
+      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+
+    categories.forEach((category) => {
+      sheet.addRow({
+        name: category.name,
+        slug: category.slug,
+        parent: category.parent?.name ?? '—',
+        productCount: category._count.products,
+        createdAt: category.createdAt.toLocaleDateString('vi-VN'),
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
   }
 
   async update(id: string, dto: UpdateCategoryDto) {
@@ -241,6 +280,19 @@ export class CategoriesService {
       where: { id },
       data: { deletedAt: null },
     });
+  }
+
+  private buildWhere(query: QueryCategoriesDto): Prisma.CategoryWhereInput {
+    const { search, parentId, rootOnly } = query;
+
+    return {
+      deletedAt: null,
+      ...(rootOnly && { parentId: null }),
+      ...(parentId && { parentId }),
+      ...(search && {
+        name: { contains: search, mode: Prisma.QueryMode.insensitive },
+      }),
+    };
   }
 
   private async collectDescendantIds(rootId: string): Promise<Set<string>> {
