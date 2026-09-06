@@ -4,6 +4,7 @@ import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { CartModule } from './modules/cart/cart.module';
 import { UsersModule } from './modules/users/users.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { OrdersModule } from './modules/orders/orders.module';
@@ -20,6 +21,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 @Module({
   imports: [
+    CartModule,
     AuthModule,
     PostsModule,
     UsersModule,
