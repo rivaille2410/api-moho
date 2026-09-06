@@ -85,6 +85,7 @@ model User {
   cart Cart?
 
   @@index([deletedAt])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -194,6 +195,7 @@ model ProductVariant {
 
   @@index([productId])
   @@index([colorName])
+  @@index([stock])
   @@map("product_variants")
 }
 
@@ -213,14 +215,14 @@ model ProductImage {
 }
 
 model Review {
-  id         String  @id @default(uuid())
+  id         String        @id @default(uuid())
   productId  String
-  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   userId     String?
-  user       User?   @relation(fields: [userId], references: [id])
+  user       User?         @relation(fields: [userId], references: [id])
   authorName String
   rating     Int
-  content    String  @db.Text
+  content    String        @db.Text
   images     ReviewImage[]
 
   variantId        String?
@@ -314,6 +316,7 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([voucherId])
+  @@index([createdAt])
   @@map("orders")
 }
 
