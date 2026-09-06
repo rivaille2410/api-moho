@@ -4,8 +4,14 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import {
+  Prisma,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  ConfirmationType,
+} from '@prisma/client';
 import * as ExcelJS from 'exceljs';
-import { Prisma, OrderStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
 import { ReviewsService } from '../reviews/reviews.service';
@@ -18,6 +24,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 const ORDER_INCLUDE = {
   items: true,
   user: { select: { id: true, name: true, avatar: true } },
+  payments: { orderBy: { createdAt: 'desc' } },
 } satisfies Prisma.OrderInclude;
 
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -28,6 +35,21 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   DELIVERED: [],
   CANCELLED: [],
 };
+
+function resolveConfirmationType(method: PaymentMethod): ConfirmationType {
+  switch (method) {
+    case PaymentMethod.COD:
+      return ConfirmationType.COD_COLLECTION;
+    case PaymentMethod.BANK_TRANSFER:
+      return ConfirmationType.MANUAL;
+    case PaymentMethod.VNPAY:
+    case PaymentMethod.MOMO:
+    case PaymentMethod.ZALOPAY:
+      return ConfirmationType.WEBHOOK;
+    default:
+      return ConfirmationType.MANUAL;
+  }
+}
 
 @Injectable()
 export class OrdersService {
@@ -184,6 +206,7 @@ export class OrdersService {
       });
 
       const orderNumber = await this.generateOrderNumber(tx);
+      const paymentMethod = dto.paymentMethod ?? PaymentMethod.COD;
 
       const order = await tx.order.create({
         data: {
@@ -193,12 +216,18 @@ export class OrdersService {
           recipientPhone: dto.recipientPhone,
           shippingAddress: dto.shippingAddress,
           note: dto.note,
-          paymentMethod: dto.paymentMethod ?? 'COD',
           subtotal,
           shippingFee: new Prisma.Decimal(0),
           discount: new Prisma.Decimal(0),
           total: subtotal,
           items: { createMany: { data: itemsToCreate } },
+          payments: {
+            create: {
+              method: paymentMethod,
+              confirmationType: resolveConfirmationType(paymentMethod),
+              amount: subtotal,
+            },
+          },
         },
         include: ORDER_INCLUDE,
       });
@@ -222,7 +251,10 @@ export class OrdersService {
     const orders = await this.prisma.order.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: { items: true },
+      include: {
+        items: true,
+        payments: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
     });
 
     const workbook = new ExcelJS.Workbook();
@@ -237,7 +269,8 @@ export class OrdersService {
       { header: 'Giảm giá', key: 'discount', width: 15 },
       { header: 'Tổng tiền', key: 'total', width: 15 },
       { header: 'Thanh toán', key: 'paymentMethod', width: 18 },
-      { header: 'Trạng thái', key: 'status', width: 15 },
+      { header: 'Trạng thái TT', key: 'paymentStatus', width: 15 },
+      { header: 'Trạng thái đơn', key: 'status', width: 15 },
       { header: 'Ngày đặt', key: 'createdAt', width: 20 },
     ];
     sheet.getRow(1).font = { bold: true };
@@ -251,12 +284,25 @@ export class OrdersService {
       CANCELLED: 'Đã huỷ',
     };
 
-    const paymentLabel: Record<string, string> = {
+    const paymentLabel: Record<PaymentMethod, string> = {
       COD: 'Thanh toán khi nhận hàng',
       BANK_TRANSFER: 'Chuyển khoản',
+      VNPAY: 'VNPay',
+      MOMO: 'MoMo',
+      ZALOPAY: 'ZaloPay',
+    };
+
+    const paymentStatusLabel: Record<PaymentStatus, string> = {
+      PENDING: 'Chờ thanh toán',
+      AWAITING_CONFIRM: 'Chờ xác nhận',
+      CONFIRMED: 'Đã thanh toán',
+      FAILED: 'Thất bại',
+      REFUNDED: 'Đã hoàn tiền',
+      PARTIALLY_REFUNDED: 'Hoàn tiền một phần',
     };
 
     orders.forEach((order) => {
+      const payment = order.payments[0];
       sheet.addRow({
         orderNumber: order.orderNumber,
         recipientName: order.recipientName,
@@ -265,7 +311,10 @@ export class OrdersService {
         subtotal: order.subtotal.toString(),
         discount: order.discount.toString(),
         total: order.total.toString(),
-        paymentMethod: paymentLabel[order.paymentMethod] ?? order.paymentMethod,
+        paymentMethod: payment
+          ? (paymentLabel[payment.method] ?? payment.method)
+          : '',
+        paymentStatus: payment ? paymentStatusLabel[payment.status] : '',
         status: statusLabel[order.status],
         createdAt: order.createdAt.toLocaleDateString('vi-VN'),
       });
@@ -316,6 +365,24 @@ export class OrdersService {
         data: { soldCount: { decrement: 1 } },
       });
 
+      const latestPayment = order.payments[0];
+      if (latestPayment) {
+        if (latestPayment.status === PaymentStatus.CONFIRMED) {
+          await tx.payment.update({
+            where: { id: latestPayment.id },
+            data: { status: PaymentStatus.REFUNDED },
+          });
+        } else if (
+          latestPayment.status === PaymentStatus.PENDING ||
+          latestPayment.status === PaymentStatus.AWAITING_CONFIRM
+        ) {
+          await tx.payment.update({
+            where: { id: latestPayment.id },
+            data: { status: PaymentStatus.FAILED },
+          });
+        }
+      }
+
       return tx.order.update({
         where: { id: order.id },
         data: { status: OrderStatus.CANCELLED, cancelReason },
@@ -359,10 +426,11 @@ export class OrdersService {
   }
 
   private buildWhere(query: QueryOrdersDto): Prisma.OrderWhereInput {
-    const { status, userId, search } = query;
+    const { status, userId, search, paymentStatus } = query;
     return {
       ...(status && { status }),
       ...(userId && { userId }),
+      ...(paymentStatus && { payments: { some: { status: paymentStatus } } }),
       ...(search && {
         orderNumber: { contains: search, mode: Prisma.QueryMode.insensitive },
       }),

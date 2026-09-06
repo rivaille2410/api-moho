@@ -31,11 +31,6 @@ enum OrderStatus {
   CANCELLED
 }
 
-enum PaymentMethod {
-  COD
-  BANK_TRANSFER
-}
-
 enum PostStatus {
   DRAFT
   PUBLISHED
@@ -61,6 +56,29 @@ enum VoucherStatus {
   DEPLETED
 }
 
+enum PaymentMethod {
+  COD
+  BANK_TRANSFER
+  VNPAY
+  MOMO
+  ZALOPAY
+}
+
+enum ConfirmationType {
+  MANUAL
+  WEBHOOK
+  COD_COLLECTION
+}
+
+enum PaymentStatus {
+  PENDING
+  AWAITING_CONFIRM
+  CONFIRMED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
 model User {
   id             String          @id @default(uuid())
   name           String
@@ -83,6 +101,8 @@ model User {
   voucherUsages VoucherUsage[]
 
   cart Cart?
+
+  confirmedPayments Payment[] @relation("PaymentConfirmedBy")
 
   @@index([deletedAt])
   @@index([createdAt])
@@ -284,12 +304,13 @@ model ReviewComment {
 }
 
 model Order {
-  id            String        @id @default(uuid())
-  orderNumber   String        @unique
-  userId        String
-  user          User          @relation(fields: [userId], references: [id])
-  status        OrderStatus   @default(PENDING)
-  paymentMethod PaymentMethod @default(COD)
+  id          String      @id @default(uuid())
+  orderNumber String      @unique
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  status      OrderStatus @default(PENDING)
+
+  payments Payment[]
 
   subtotal    Decimal @db.Decimal(12, 0)
   shippingFee Decimal @default(0) @db.Decimal(12, 0)
@@ -339,6 +360,61 @@ model OrderItem {
   @@index([productId])
   @@index([variantId])
   @@map("order_items")
+}
+
+model Payment {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  method           PaymentMethod
+  confirmationType ConfirmationType
+  status           PaymentStatus    @default(PENDING)
+
+  amount Decimal @db.Decimal(12, 0)
+
+  transferNote  String?
+  proofImageUrl String?
+
+  confirmedById String?
+  confirmedBy   User?     @relation("PaymentConfirmedBy", fields: [confirmedById], references: [id])
+  confirmedAt   DateTime?
+  adminNote     String?
+
+  collectedAmount Decimal? @db.Decimal(12, 0)
+  courierName     String?
+
+  gatewayTxnId String? @unique
+  gatewayRefId String?
+
+  webhookEvents PaymentWebhookEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([method])
+  @@map("payments")
+}
+
+model PaymentWebhookEvent {
+  id        String   @id @default(uuid())
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  provider        PaymentMethod
+  eventType       String
+  externalEventId String @unique
+  rawPayload      Json
+  processedAt     DateTime?
+  processingError String?
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([provider])
+  @@map("payment_webhook_events")
 }
 
 model Post {

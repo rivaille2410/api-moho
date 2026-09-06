@@ -240,9 +240,6 @@ export class DashboardService {
     }));
   }
 
-  // ===== BỔ SUNG MỚI =====
-
-  /** Phân bố số lượng đơn hàng theo từng trạng thái trong khoảng thời gian, kèm tỉ lệ huỷ đơn. */
   async getOrderStatusDistribution(range: DashboardRange) {
     const days = rangeToDays(range);
     const start = new Date();
@@ -278,7 +275,6 @@ export class DashboardService {
     };
   }
 
-  /** Danh sách đơn hàng mới nhất kèm thông tin khách hàng. */
   async getRecentOrders(limit: number) {
     const orders = await this.prisma.order.findMany({
       orderBy: { createdAt: 'desc' },
@@ -288,8 +284,12 @@ export class DashboardService {
         orderNumber: true,
         status: true,
         total: true,
-        paymentMethod: true,
         createdAt: true,
+        payments: {
+          select: { method: true, status: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         user: { select: { id: true, name: true, email: true, avatar: true } },
       },
     });
@@ -299,7 +299,8 @@ export class DashboardService {
       orderNumber: o.orderNumber,
       status: o.status,
       total: Number(o.total),
-      paymentMethod: o.paymentMethod,
+      paymentMethod: o.payments[0]?.method ?? null,
+      paymentStatus: o.payments[0]?.status ?? null,
       createdAt: o.createdAt,
       customer: {
         id: o.user.id,
@@ -310,7 +311,6 @@ export class DashboardService {
     }));
   }
 
-  /** Top khách hàng chi tiêu nhiều nhất (dựa trên đơn có trạng thái tính doanh thu) trong khoảng thời gian. */
   async getTopCustomers(range: DashboardRange, limit: number) {
     const days = rangeToDays(range);
     const start = new Date();

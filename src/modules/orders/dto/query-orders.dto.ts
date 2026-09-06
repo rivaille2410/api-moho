@@ -7,8 +7,8 @@ import {
   IsOptional,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderStatus } from '@prisma/client';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 
 export class QueryOrdersDto {
   @ApiPropertyOptional({ example: 1 })
@@ -29,6 +29,11 @@ export class QueryOrdersDto {
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
+
+  @ApiPropertyOptional({ enum: PaymentStatus })
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  paymentStatus?: PaymentStatus;
 
   @ApiPropertyOptional()
   @IsOptional()
