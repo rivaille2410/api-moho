@@ -13,6 +13,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { VouchersModule } from './modules/vouchers/vouchers.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 
 import { envValidationSchema } from './config/env.validation';
@@ -32,6 +33,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     VouchersModule,
     CommentsModule,
     ProductsModule,
+    DashboardModule,
     CategoriesModule,
     ConfigModule.forRoot({
       isGlobal: true,
