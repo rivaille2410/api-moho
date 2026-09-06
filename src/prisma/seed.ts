@@ -9,6 +9,8 @@ import {
   ProductStatus,
   VoucherStatus,
   PaymentMethod,
+  PaymentStatus,
+  ConfirmationType,
 } from '@prisma/client';
 import 'dotenv/config';
 import * as argon2 from 'argon2';
@@ -47,6 +49,16 @@ function randomPastDate(maxDaysAgo: number, minDaysAgo = 0): Date {
   const offset = randomInt(minDaysAgo, maxDaysAgo);
   const jitterMs = randomInt(0, day - 1);
   return new Date(Date.now() - offset * day - jitterMs);
+}
+
+function randomToken(length = 40): string {
+  const chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += chars[randomInt(0, chars.length - 1)];
+  }
+  return out;
 }
 
 async function seedAdmin(prisma: PrismaClient) {
@@ -351,7 +363,6 @@ async function seedProducts(prisma: PrismaClient) {
   }
 
   console.log(`\n✅ Đã tạo ${created} sản phẩm.`);
-  console.log('ℹ️  Ảnh sản phẩm chưa được seed, thêm sau qua API upload.');
 }
 
 type VoucherSeedDef = {
@@ -608,13 +619,6 @@ async function seedVouchers(prisma: PrismaClient) {
   );
 }
 
-/* ============================================================================
- * PHẦN BỔ SUNG: seed đầy đủ dữ liệu cho các bảng còn lại để có dữ liệu
- * hiển thị dashboard (khách hàng, ảnh sản phẩm, bài viết, giỏ hàng,
- * đơn hàng, sử dụng voucher, đánh giá sản phẩm...).
- * Toàn bộ phần seed gốc phía trên được giữ nguyên không chỉnh sửa.
- * ==========================================================================*/
-
 const FIRST_NAMES = [
   'Nguyễn Văn',
   'Trần Thị',
@@ -709,10 +713,6 @@ function randomAddress(): string {
   return `${houseNo} đường ${street}, ${a.ward}, ${a.district}, ${a.city}`;
 }
 
-function placeholderImage(seed: string, w = 800, h = 800): string {
-  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
-}
-
 const CUSTOMERS_COUNT = 40;
 
 async function seedCustomers(prisma: PrismaClient) {
@@ -750,10 +750,6 @@ async function seedCustomers(prisma: PrismaClient) {
         googleId: isGoogle
           ? `google-${Math.random().toString(36).slice(2, 12)}`
           : null,
-        avatar:
-          Math.random() < 0.6
-            ? placeholderImage(`avatar-${email}`, 200, 200)
-            : null,
         role: Role.CUSTOMER,
         emailVerified: Math.random() < 0.9,
         bannedAt: isBanned ? randomPastDate(30, 1) : null,
@@ -769,45 +765,37 @@ async function seedCustomers(prisma: PrismaClient) {
   );
 }
 
-async function seedProductImages(prisma: PrismaClient) {
-  console.log('🖼️  Seeding product images...');
+async function seedRefreshTokens(prisma: PrismaClient) {
+  console.log('🔑 Seeding refresh tokens...');
 
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null },
-    include: { images: true, variants: true },
-  });
+  const users = await prisma.user.findMany();
+  if (users.length === 0) {
+    console.log('⚠️  Chưa có user nào, dừng seed refresh tokens.\n');
+    return;
+  }
 
-  let createdImages = 0;
+  const holders = randomSample(users, Math.min(20, users.length));
+  let created = 0;
 
-  for (const product of products) {
-    if (product.images.length > 0) continue;
-
-    const galleryCount = randomInt(2, 4);
-    const galleryData = Array.from({ length: galleryCount }).map((_, i) => ({
-      productId: product.id,
-      url: placeholderImage(`${product.slug}-${i}`),
-      sortOrder: i,
-      isThumbnail: i === 0,
-    }));
-
-    await prisma.productImage.createMany({ data: galleryData });
-    createdImages += galleryData.length;
-
-    for (const variant of product.variants) {
-      await prisma.productImage.create({
+  for (const user of holders) {
+    const tokenCount = randomInt(1, 2);
+    for (let i = 0; i < tokenCount; i++) {
+      const issuedAt = randomPastDate(30, 0);
+      const revoked = Math.random() < 0.2;
+      await prisma.refreshToken.create({
         data: {
-          productId: product.id,
-          variantId: variant.id,
-          url: placeholderImage(`${product.slug}-${slugify(variant.name)}`),
-          sortOrder: 0,
-          isThumbnail: false,
+          userId: user.id,
+          tokenHash: randomToken(48),
+          expiresAt: new Date(issuedAt.getTime() + 30 * 24 * 60 * 60 * 1000),
+          revoked,
+          createdAt: issuedAt,
         },
       });
-      createdImages++;
+      created++;
     }
   }
 
-  console.log(`✅ Đã tạo ${createdImages} ảnh sản phẩm.\n`);
+  console.log(`✅ Đã tạo ${created} refresh tokens.\n`);
 }
 
 const POST_TOPICS = [
@@ -860,7 +848,6 @@ async function seedPosts(prisma: PrismaClient) {
         title,
         slug,
         excerpt: `${title} - những gợi ý và kinh nghiệm thực tế giúp bạn có không gian sống đẹp và tiện nghi hơn.`,
-        thumbnailUrl: placeholderImage(`post-${slug}`, 900, 500),
         content: `<p>${title}</p><p>Đây là nội dung mẫu cho bài viết "${title}". Nội dung này được seed tự động phục vụ mục đích hiển thị dữ liệu mẫu trên trang blog và dashboard quản trị.</p>`,
         status,
         publishedAt,
@@ -887,8 +874,23 @@ const CANCEL_REASONS = [
   'Không liên lạc được với khách hàng',
 ];
 
+const COURIER_NAMES = [
+  'Giao Hàng Nhanh',
+  'Giao Hàng Tiết Kiệm',
+  'Viettel Post',
+  'J&T Express',
+  'Ninja Van',
+];
+
+// Payment method dùng cổng thứ 3 (webhook), tạm để seed đa dạng dữ liệu
+// cho PaymentWebhookEvent dù thực tế dự án chưa bật cổng nào.
+const GATEWAY_METHODS = [
+  PaymentMethod.VNPAY,
+  PaymentMethod.MOMO,
+  PaymentMethod.ZALOPAY,
+];
+
 function pickOrderStatusByAge(daysAgo: number): OrderStatus {
-  // Đơn càng cũ càng có xu hướng đã hoàn tất; đơn gần đây có nhiều trạng thái đang xử lý hơn.
   if (daysAgo > 20) {
     const roll = Math.random();
     if (roll < 0.78) return OrderStatus.DELIVERED;
@@ -924,6 +926,155 @@ function computeVoucherDiscount(
   return Math.min(value, subtotal);
 }
 
+async function seedPaymentForOrder(
+  prisma: PrismaClient,
+  order: { id: string; orderNumber: string; total: any; createdAt: Date },
+  orderStatus: OrderStatus,
+  adminId: string | undefined,
+) {
+  const amount = Number(order.total);
+  const roll = Math.random();
+  const method: PaymentMethod =
+    roll < 0.55
+      ? PaymentMethod.COD
+      : roll < 0.85
+        ? PaymentMethod.BANK_TRANSFER
+        : randomPick(GATEWAY_METHODS);
+
+  const isCancelled = orderStatus === OrderStatus.CANCELLED;
+  const fulfilledStatuses: OrderStatus[] = [
+    OrderStatus.CONFIRMED,
+    OrderStatus.PROCESSING,
+    OrderStatus.SHIPPED,
+    OrderStatus.DELIVERED,
+  ];
+  const isFulfilled = fulfilledStatuses.includes(orderStatus);
+
+  if (method === PaymentMethod.COD) {
+    const isDelivered = orderStatus === OrderStatus.DELIVERED;
+    const status: PaymentStatus = isCancelled
+      ? PaymentStatus.FAILED
+      : isDelivered
+        ? PaymentStatus.CONFIRMED
+        : PaymentStatus.PENDING;
+
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        method,
+        confirmationType: ConfirmationType.COD_COLLECTION,
+        status,
+        amount,
+        collectedAmount: status === PaymentStatus.CONFIRMED ? amount : null,
+        courierName:
+          isFulfilled || isCancelled ? randomPick(COURIER_NAMES) : null,
+        confirmedById: status === PaymentStatus.CONFIRMED ? adminId : null,
+        confirmedAt:
+          status === PaymentStatus.CONFIRMED
+            ? new Date(
+                order.createdAt.getTime() +
+                  randomInt(1, 5) * 24 * 60 * 60 * 1000,
+              )
+            : null,
+        createdAt: order.createdAt,
+        updatedAt: order.createdAt,
+      },
+    });
+    return;
+  }
+
+  if (method === PaymentMethod.BANK_TRANSFER) {
+    let status: PaymentStatus;
+    if (isCancelled) {
+      status =
+        Math.random() < 0.5 ? PaymentStatus.REFUNDED : PaymentStatus.FAILED;
+    } else if (isFulfilled) {
+      status = PaymentStatus.CONFIRMED;
+    } else {
+      status =
+        Math.random() < 0.5
+          ? PaymentStatus.AWAITING_CONFIRM
+          : PaymentStatus.PENDING;
+    }
+
+    const isConfirmedLike =
+      status === PaymentStatus.CONFIRMED || status === PaymentStatus.REFUNDED;
+
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        method,
+        confirmationType: ConfirmationType.MANUAL,
+        status,
+        amount,
+        transferNote: order.orderNumber,
+        confirmedById: isConfirmedLike ? adminId : null,
+        confirmedAt: isConfirmedLike
+          ? new Date(
+              order.createdAt.getTime() + randomInt(0, 2) * 24 * 60 * 60 * 1000,
+            )
+          : null,
+        createdAt: order.createdAt,
+        updatedAt: order.createdAt,
+      },
+    });
+    return;
+  }
+
+  // Cổng thanh toán bên thứ 3 (webhook) — chưa dùng thực tế, chỉ seed cho đa dạng dữ liệu.
+  let status: PaymentStatus;
+  if (isCancelled) {
+    status =
+      Math.random() < 0.5 ? PaymentStatus.REFUNDED : PaymentStatus.FAILED;
+  } else if (isFulfilled) {
+    status = PaymentStatus.CONFIRMED;
+  } else {
+    status = PaymentStatus.AWAITING_CONFIRM;
+  }
+
+  const gatewayTxnId = `${method}-${order.orderNumber}-${randomInt(100000, 999999)}`;
+
+  const payment = await prisma.payment.create({
+    data: {
+      orderId: order.id,
+      method,
+      confirmationType: ConfirmationType.WEBHOOK,
+      status,
+      amount,
+      gatewayTxnId,
+      createdAt: order.createdAt,
+      updatedAt: order.createdAt,
+    },
+  });
+
+  const eventType =
+    status === PaymentStatus.CONFIRMED
+      ? 'payment.success'
+      : status === PaymentStatus.REFUNDED
+        ? 'payment.refunded'
+        : status === PaymentStatus.AWAITING_CONFIRM
+          ? 'payment.pending'
+          : 'payment.failed';
+
+  await prisma.paymentWebhookEvent.create({
+    data: {
+      paymentId: payment.id,
+      provider: method,
+      eventType,
+      externalEventId: `${gatewayTxnId}-evt`,
+      rawPayload: {
+        orderNumber: order.orderNumber,
+        amount,
+        status: eventType,
+      },
+      processedAt: new Date(
+        order.createdAt.getTime() + randomInt(1, 30) * 60 * 1000,
+      ),
+      createdAt: order.createdAt,
+    },
+  });
+}
+
 async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
   console.log('🧾 Seeding orders...');
 
@@ -942,6 +1093,7 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
   const usableVouchers = await prisma.voucher.findMany({
     where: { status: { in: [VoucherStatus.ACTIVE, VoucherStatus.EXPIRED] } },
   });
+  const admin = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
 
   if (customers.length === 0 || variants.length === 0) {
     console.log(
@@ -953,6 +1105,7 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
   let createdOrders = 0;
   let createdItems = 0;
   let createdVoucherUsages = 0;
+  let createdPayments = 0;
 
   for (let i = 0; i < ORDERS_COUNT; i++) {
     const customer = randomPick(customers);
@@ -969,11 +1122,6 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
         variantId: variant.id,
         productName: variant.product.name,
         variantName: variant.name,
-        thumbnailUrl: placeholderImage(
-          `${variant.product.slug}-${slugify(variant.name)}`,
-          300,
-          300,
-        ),
         price: unitPrice,
         quantity,
         lineTotal: unitPrice * quantity,
@@ -1011,10 +1159,6 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
         orderNumber,
         userId: customer.id,
         status,
-        paymentMethod:
-          Math.random() < 0.65
-            ? PaymentMethod.COD
-            : PaymentMethod.BANK_TRANSFER,
         subtotal,
         shippingFee,
         discount,
@@ -1041,6 +1185,9 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
     createdOrders++;
     createdItems += itemsData.length;
 
+    await seedPaymentForOrder(prisma, order, status, admin?.id);
+    createdPayments++;
+
     if (voucherId) {
       await prisma.voucherUsage.create({
         data: {
@@ -1060,7 +1207,7 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
   }
 
   console.log(
-    `✅ Đã tạo ${createdOrders} đơn hàng, ${createdItems} order items, ${createdVoucherUsages} voucher usages.\n`,
+    `✅ Đã tạo ${createdOrders} đơn hàng, ${createdItems} order items, ${createdPayments} payments, ${createdVoucherUsages} voucher usages.\n`,
   );
 }
 
@@ -1162,7 +1309,6 @@ async function seedReviews(prisma: PrismaClient) {
     Math.ceil(products.length * 0.65),
   );
   let createdReviews = 0;
-  let createdImages = 0;
   let createdVotes = 0;
   let createdComments = 0;
 
@@ -1203,19 +1349,6 @@ async function seedReviews(prisma: PrismaClient) {
         },
       });
       createdReviews++;
-
-      if (Math.random() < 0.3) {
-        const imgCount = randomInt(1, 2);
-        for (let k = 0; k < imgCount; k++) {
-          await prisma.reviewImage.create({
-            data: {
-              reviewId: review.id,
-              url: placeholderImage(`review-${review.id}-${k}`, 500, 500),
-            },
-          });
-          createdImages++;
-        }
-      }
 
       const voterPool = randomSample(
         customers,
@@ -1264,7 +1397,7 @@ async function seedReviews(prisma: PrismaClient) {
   }
 
   console.log(
-    `✅ Đã tạo ${createdReviews} đánh giá, ${createdImages} ảnh đánh giá, ${createdVotes} lượt vote hữu ích, ${createdComments} bình luận.\n`,
+    `✅ Đã tạo ${createdReviews} đánh giá, ${createdVotes} lượt vote hữu ích, ${createdComments} bình luận.\n`,
   );
 }
 
@@ -1281,8 +1414,8 @@ async function main() {
     await seedAdmin(prisma);
     await seedCategories(prisma);
     await seedProducts(prisma);
-    await seedProductImages(prisma);
     await seedCustomers(prisma);
+    await seedRefreshTokens(prisma);
     await seedPosts(prisma);
     await seedVouchers(prisma);
     await seedOrdersAndVoucherUsages(prisma);

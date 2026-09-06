@@ -1,11 +1,20 @@
+import {
+  Order,
+  Payment,
+  OrderItem,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  ConfirmationType,
+} from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
-import { Order, OrderItem, OrderStatus, PaymentMethod } from '@prisma/client';
 
 export type OrderItemWithReview = OrderItem & { isReviewed?: boolean };
 
 export type OrderWithItems = Order & {
   items: OrderItemWithReview[];
   user: { id: string; name: string; avatar: string | null };
+  payments: Payment[];
 };
 
 class OrderItemResponseDto {
@@ -44,13 +53,34 @@ class OrderUserResponseDto {
   }
 }
 
+class PaymentResponseDto {
+  @ApiProperty() id: string;
+  @ApiProperty({ enum: PaymentMethod }) method: PaymentMethod;
+  @ApiProperty({ enum: ConfirmationType }) confirmationType: ConfirmationType;
+  @ApiProperty({ enum: PaymentStatus }) status: PaymentStatus;
+  @ApiProperty() amount: number;
+  @ApiProperty({ required: false }) confirmedAt?: Date;
+  @ApiProperty({ required: false }) proofImageUrl?: string;
+
+  constructor(payment: Payment) {
+    this.id = payment.id;
+    this.method = payment.method;
+    this.confirmationType = payment.confirmationType;
+    this.status = payment.status;
+    this.amount = payment.amount.toNumber();
+    this.confirmedAt = payment.confirmedAt ?? undefined;
+    this.proofImageUrl = payment.proofImageUrl ?? undefined;
+  }
+}
+
 export class OrderResponseDto {
   @ApiProperty() id: string;
   @ApiProperty() orderNumber: string;
   @ApiProperty() userId: string;
   @ApiProperty({ type: OrderUserResponseDto }) user: OrderUserResponseDto;
   @ApiProperty({ enum: OrderStatus }) status: OrderStatus;
-  @ApiProperty({ enum: PaymentMethod }) paymentMethod: PaymentMethod;
+  @ApiProperty({ type: PaymentResponseDto, required: false })
+  payment?: PaymentResponseDto;
   @ApiProperty() subtotal: number;
   @ApiProperty() shippingFee: number;
   @ApiProperty() discount: number;
@@ -70,7 +100,9 @@ export class OrderResponseDto {
     this.userId = order.userId;
     this.user = new OrderUserResponseDto(order.user);
     this.status = order.status;
-    this.paymentMethod = order.paymentMethod;
+    this.payment = order.payments?.[0]
+      ? new PaymentResponseDto(order.payments[0])
+      : undefined;
     this.subtotal = order.subtotal.toNumber();
     this.shippingFee = order.shippingFee.toNumber();
     this.discount = order.discount.toNumber();
