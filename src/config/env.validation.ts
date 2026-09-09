@@ -23,4 +23,8 @@ export const envValidationSchema = Joi.object({
 
   RESEND_API_KEY: Joi.string().required(),
   MAIL_FROM: Joi.string().default('onboarding@resend.dev'),
+
+  REDIS_HOST: Joi.string().default('localhost'),
+  REDIS_PORT: Joi.number().default(6379),
+  REDIS_PASSWORD: Joi.string().allow('').optional(),
 });

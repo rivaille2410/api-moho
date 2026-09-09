@@ -3,7 +3,11 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@/prisma/prisma.service';
+
+import { AppEvent } from '@/common/events/event-names';
+import { CommentCreatedEvent } from '@/common/events/comment.events';
 
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { QueryCommentsDto } from './dto/query-comments.dto';
@@ -17,7 +21,10 @@ const COMMENT_USER_SELECT = {
 
 @Injectable()
 export class CommentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async findAllForReview(
     slug: string,
@@ -60,20 +67,28 @@ export class CommentsService {
     userId: string,
     dto: CreateCommentDto,
   ): Promise<CommentWithRelations> {
-    await this.ensureReviewOnProduct(slug, reviewId);
+    const review = await this.ensureReviewOnProduct(slug, reviewId);
 
     let parentId = dto.parentId ?? null;
+    let parentCommentOwnerUserId: string | null = null;
 
     if (parentId) {
       const parent = await this.prisma.reviewComment.findFirst({
         where: { id: parentId, reviewId },
-        select: { id: true, parentId: true },
+        select: { id: true, parentId: true, userId: true },
       });
       if (!parent) {
         throw new NotFoundException('Comment being replied to was not found');
       }
       if (parent.parentId) {
         parentId = parent.parentId;
+        const topLevelParent = await this.prisma.reviewComment.findUnique({
+          where: { id: parentId },
+          select: { userId: true },
+        });
+        parentCommentOwnerUserId = topLevelParent?.userId ?? null;
+      } else {
+        parentCommentOwnerUserId = parent.userId;
       }
     }
 
@@ -88,6 +103,20 @@ export class CommentsService {
         user: { select: COMMENT_USER_SELECT },
       },
     });
+
+    this.eventEmitter.emit(
+      AppEvent.COMMENT_CREATED,
+      new CommentCreatedEvent(
+        comment.id,
+        reviewId,
+        slug,
+        userId,
+        comment.user.name,
+        review.userId,
+        parentCommentOwnerUserId,
+        !!parentId,
+      ),
+    );
 
     return comment as unknown as CommentWithRelations;
   }
@@ -127,11 +156,12 @@ export class CommentsService {
 
     const review = await this.prisma.review.findFirst({
       where: { id: reviewId, productId: product.id },
-      select: { id: true },
+      select: { id: true, userId: true },
     });
     if (!review) {
       throw new NotFoundException('Review not found on this product');
     }
+    return review;
   }
 
   private buildMeta(page: number, limit: number, totalItems: number) {

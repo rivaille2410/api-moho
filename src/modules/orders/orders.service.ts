@@ -12,8 +12,10 @@ import {
   ConfirmationType,
 } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@/prisma/prisma.service';
 
+import { AppEvent } from '@/common/events/event-names';
 import { ReviewsService } from '../reviews/reviews.service';
 
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -21,8 +23,23 @@ import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrderWithItems } from './dto/order-response.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
+import {
+  OrderCreatedEvent,
+  OrderStatusChangedEvent,
+} from '@/common/events/order.events';
+import { ProductLowStockEvent } from '@/common/events/product.events';
+
 const ORDER_INCLUDE = {
-  items: true,
+  items: {
+    include: {
+      variant: {
+        select: {
+          colorHex: true,
+          colorName: true,
+        },
+      },
+    },
+  },
   user: { select: { id: true, name: true, avatar: true } },
   payments: { orderBy: { createdAt: 'desc' } },
 } satisfies Prisma.OrderInclude;
@@ -35,6 +52,8 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   DELIVERED: [],
   CANCELLED: [],
 };
+
+const LOW_STOCK_THRESHOLD = 5;
 
 function resolveConfirmationType(method: PaymentMethod): ConfirmationType {
   switch (method) {
@@ -56,6 +75,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reviewsService: ReviewsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async findAll(query: QueryOrdersDto) {
@@ -127,8 +147,9 @@ export class OrdersService {
 
   async create(userId: string, dto: CreateOrderDto): Promise<OrderWithItems> {
     const mergedItems = this.mergeDuplicateItems(dto.items);
+    const lowStockEvents: ProductLowStockEvent[] = [];
 
-    return this.prisma.$transaction(async (tx) => {
+    const order = await this.prisma.$transaction(async (tx) => {
       const variants = await tx.productVariant.findMany({
         where: { id: { in: mergedItems.map((i) => i.variantId) } },
         include: {
@@ -183,6 +204,22 @@ export class OrdersService {
           });
         }
 
+        const updatedVariant = await tx.productVariant.findUniqueOrThrow({
+          where: { id: variant.id },
+          select: { stock: true },
+        });
+        if (updatedVariant.stock <= LOW_STOCK_THRESHOLD) {
+          lowStockEvents.push(
+            new ProductLowStockEvent(
+              variant.id,
+              variant.name,
+              variant.productId,
+              variant.product.name,
+              updatedVariant.stock,
+            ),
+          );
+        }
+
         const unitPrice = variant.priceOverride ?? variant.product.price;
         subtotal = subtotal.add(unitPrice.mul(line.quantity));
 
@@ -208,7 +245,7 @@ export class OrdersService {
       const orderNumber = await this.generateOrderNumber(tx);
       const paymentMethod = dto.paymentMethod ?? PaymentMethod.COD;
 
-      const order = await tx.order.create({
+      return tx.order.create({
         data: {
           orderNumber,
           userId,
@@ -231,9 +268,18 @@ export class OrdersService {
         },
         include: ORDER_INCLUDE,
       });
-
-      return order;
     });
+
+    // Emit only after the transaction has committed successfully.
+    this.eventEmitter.emit(
+      AppEvent.ORDER_CREATED,
+      new OrderCreatedEvent(order),
+    );
+    for (const event of lowStockEvents) {
+      this.eventEmitter.emit(AppEvent.PRODUCT_LOW_STOCK, event);
+    }
+
+    return order;
   }
 
   async exportToExcel(query: QueryOrdersDto): Promise<Buffer> {
@@ -330,6 +376,7 @@ export class OrdersService {
   ): Promise<OrderWithItems> {
     const order = await this.findByIdOrThrow(id);
     const allowed = ALLOWED_TRANSITIONS[order.status];
+    const previousStatus = order.status;
 
     if (!allowed.includes(dto.status)) {
       throw new ConflictException({
@@ -338,15 +385,21 @@ export class OrdersService {
       });
     }
 
-    if (dto.status === OrderStatus.CANCELLED) {
-      return this.cancelOrder(order, dto.cancelReason);
-    }
+    const updated =
+      dto.status === OrderStatus.CANCELLED
+        ? await this.cancelOrder(order, dto.cancelReason)
+        : await this.prisma.order.update({
+            where: { id },
+            data: { status: dto.status },
+            include: ORDER_INCLUDE,
+          });
 
-    return this.prisma.order.update({
-      where: { id },
-      data: { status: dto.status },
-      include: ORDER_INCLUDE,
-    });
+    this.eventEmitter.emit(
+      AppEvent.ORDER_STATUS_CHANGED,
+      new OrderStatusChangedEvent(updated, previousStatus),
+    );
+
+    return updated;
   }
 
   private async cancelOrder(

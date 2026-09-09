@@ -554,3 +554,34 @@ model CartItem {
   @@index([variantId])
   @@map("cart_items")
 }
+
+enum NotificationType {
+  ORDER_CREATED
+  ORDER_STATUS_CHANGED
+  PAYMENT_AWAITING_CONFIRM
+  PRODUCT_LOW_STOCK
+  REVIEW_CREATED
+  COMMENT_CREATED
+}
+
+enum NotificationAudience {
+  ADMIN
+  USER
+}
+
+model Notification {
+  id          String                @id @default(uuid())
+  type        NotificationType
+  audience    NotificationAudience
+  recipientId String?
+  title       String
+  message     String
+  link        String?
+  metadata    Json?
+  isRead      Boolean               @default(false)
+  createdAt   DateTime              @default(now())
+
+  @@index([audience, recipientId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
