@@ -4,7 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@/prisma/prisma.service';
+
+import { AppEvent } from '@/common/events/event-names';
+import { ReviewCreatedEvent } from '@/common/events/review.events';
 import { CloudinaryService } from '@/common/cloudinary/cloudinary.service';
 
 import {
@@ -58,6 +62,7 @@ export class ReviewsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async findAll(query: QueryReviewsDto) {
@@ -121,6 +126,18 @@ export class ReviewsService {
       },
       include: REVIEW_INCLUDE,
     });
+
+    this.eventEmitter.emit(
+      AppEvent.REVIEW_CREATED,
+      new ReviewCreatedEvent(
+        review.id,
+        review.productId,
+        review.product.name,
+        review.rating,
+        review.authorName,
+      ),
+    );
+
     const [withStats] = await this.attachAuthorStats([review]);
     return withStats;
   }
@@ -317,6 +334,18 @@ export class ReviewsService {
       },
       include: REVIEW_INCLUDE,
     });
+
+    this.eventEmitter.emit(
+      AppEvent.REVIEW_CREATED,
+      new ReviewCreatedEvent(
+        review.id,
+        review.productId,
+        review.product.name,
+        review.rating,
+        review.authorName,
+      ),
+    );
+
     const [withStats] = await this.attachAuthorStats([review]);
     return withStats;
   }

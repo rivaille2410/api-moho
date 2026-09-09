@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+
+import { envValidationSchema } from './config/env.validation';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 import { PrismaModule } from './prisma/prisma.module';
+import { MailModule } from './modules/mail/mail.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
 import { UsersModule } from './modules/users/users.module';
@@ -15,13 +21,11 @@ import { CommentsModule } from './modules/comments/comments.module';
 import { VouchersModule } from './modules/vouchers/vouchers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CategoriesModule } from './modules/categories/categories.module';
-
-import { envValidationSchema } from './config/env.validation';
-import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
+    MailModule,
     CartModule,
     AuthModule,
     PostsModule,
@@ -35,10 +39,12 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     ProductsModule,
     DashboardModule,
     CategoriesModule,
+    NotificationsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+    EventEmitterModule.forRoot(),
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

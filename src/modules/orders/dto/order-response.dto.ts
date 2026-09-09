@@ -9,7 +9,10 @@ import {
 } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
-export type OrderItemWithReview = OrderItem & { isReviewed?: boolean };
+export type OrderItemWithReview = OrderItem & {
+  isReviewed?: boolean;
+  variant?: { colorHex: string | null; colorName: string | null } | null;
+};
 
 export type OrderWithItems = Order & {
   items: OrderItemWithReview[];
@@ -27,6 +30,8 @@ class OrderItemResponseDto {
   @ApiProperty() price: number;
   @ApiProperty() quantity: number;
   @ApiProperty() isReviewed: boolean;
+  @ApiProperty({ required: false })
+  variant?: { colorHex: string | null; colorName: string | null };
 
   constructor(item: OrderItemWithReview) {
     this.id = item.id;
@@ -38,6 +43,9 @@ class OrderItemResponseDto {
     this.price = item.price.toNumber();
     this.quantity = item.quantity;
     this.isReviewed = item.isReviewed ?? false;
+    this.variant = item.variant
+      ? { colorHex: item.variant.colorHex, colorName: item.variant.colorName }
+      : undefined;
   }
 }
 
