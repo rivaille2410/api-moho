@@ -8,7 +8,7 @@ import {
 } from './create-product.dto';
 
 export class UpdateProductDto extends PartialType(
-  OmitType(CreateProductDto, ['variants'] as const),
+  OmitType(CreateProductDto, ['variants', 'sku'] as const),
 ) {
   @ApiPropertyOptional({
     type: [CreateProductMaterialDto],
