@@ -11,6 +11,10 @@ import {
   PaymentMethod,
   PaymentStatus,
   ConfirmationType,
+  NotificationType,
+  StockMovementType,
+  PurchaseOrderStatus,
+  NotificationAudience,
 } from '@prisma/client';
 import 'dotenv/config';
 import * as argon2 from 'argon2';
@@ -678,22 +682,29 @@ function randomVietnameseName(): string {
   return `${randomPick(FIRST_NAMES)} ${randomPick(LAST_NAMES)}`;
 }
 
+/**
+ * Sinh số điện thoại di động VN theo format quốc tế chuẩn: "+84 xxx xxx xxx".
+ * Đầu số 2 chữ số (086, 088, 089, 096, 097, 098, 032, 033, 035, 070, 079 — bỏ số 0 đầu)
+ * + 7 chữ số còn lại, nhóm 3-3-3 sau mã quốc gia.
+ */
 function randomPhone(): string {
   const heads = [
-    '090',
-    '091',
-    '093',
-    '096',
-    '097',
-    '098',
-    '032',
-    '033',
-    '035',
-    '070',
-    '079',
+    '86',
+    '88',
+    '89',
+    '96',
+    '97',
+    '98',
+    '32',
+    '33',
+    '35',
+    '70',
+    '79',
   ];
+  const head = randomPick(heads);
   const rest = String(randomInt(1000000, 9999999));
-  return `${randomPick(heads)}${rest}`;
+  const digits = `${head}${rest}`; // 9 chữ số
+  return `+84 ${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`;
 }
 
 function randomAddress(): string {
@@ -882,8 +893,6 @@ const COURIER_NAMES = [
   'Ninja Van',
 ];
 
-// Payment method dùng cổng thứ 3 (webhook), tạm để seed đa dạng dữ liệu
-// cho PaymentWebhookEvent dù thực tế dự án chưa bật cổng nào.
 const GATEWAY_METHODS = [
   PaymentMethod.VNPAY,
   PaymentMethod.MOMO,
@@ -1021,7 +1030,6 @@ async function seedPaymentForOrder(
     return;
   }
 
-  // Cổng thanh toán bên thứ 3 (webhook) — chưa dùng thực tế, chỉ seed cho đa dạng dữ liệu.
   let status: PaymentStatus;
   if (isCancelled) {
     status =
@@ -1361,9 +1369,7 @@ async function seedReviews(prisma: PrismaClient) {
             data: { reviewId: review.id, userId: voterId },
           });
           createdVotes++;
-        } catch {
-          // bỏ qua nếu trùng (unique constraint)
-        }
+        } catch {}
       }
 
       if (Math.random() < 0.25) {
@@ -1401,6 +1407,596 @@ async function seedReviews(prisma: PrismaClient) {
   );
 }
 
+/**
+ * Mã tỉnh/phường tham chiếu từ provinces.open-api.vn (API v2, đơn vị hành chính 2 cấp).
+ * Mã tỉnh (provinceCode) dùng theo mã hành chính chuẩn của Tổng cục Thống kê, ổn định lâu dài.
+ * Mã phường (wardCode) sau sáp nhập 2025 có thể thay đổi theo địa phương — cần đối chiếu
+ * lại với API thật (GET /api/v2/p/{provinceCode}?depth=2) trước khi dùng cho môi trường thật.
+ */
+const WAREHOUSE_DEFS = [
+  {
+    name: 'Kho trung tâm TP. Hồ Chí Minh',
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 26734,
+    wardName: 'Phường Bình Hưng Hòa',
+    addressDetail: 'Lô C12-C13, Cụm công nghiệp Vĩnh Lộc, 123 Quốc lộ 1A',
+    isMain: true,
+  },
+  {
+    name: 'Kho Hà Nội',
+    provinceCode: 1,
+    provinceName: 'Hà Nội',
+    wardCode: 771,
+    wardName: 'Phường Hoàng Liệt',
+    addressDetail: 'Số 45, Đường Ngọc Hồi, Khu công nghiệp Ngọc Hồi',
+    isMain: false,
+  },
+  {
+    name: 'Kho Đà Nẵng',
+    provinceCode: 48,
+    provinceName: 'Đà Nẵng',
+    wardCode: 20194,
+    wardName: 'Phường Hòa Thọ Tây',
+    addressDetail: 'Lô 15, Cụm công nghiệp Cẩm Lệ, 78 Đường Trường Chinh',
+    isMain: false,
+  },
+];
+
+async function seedWarehouses(prisma: PrismaClient) {
+  console.log('🏬 Seeding warehouses...');
+
+  const existing = await prisma.warehouse.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} kho hàng, bỏ qua.\n`);
+    return;
+  }
+
+  for (const def of WAREHOUSE_DEFS) {
+    await prisma.warehouse.create({ data: def });
+    console.log(`  ✅ ${def.name}${def.isMain ? ' (kho chính)' : ''}`);
+  }
+
+  console.log(`✅ Đã tạo ${WAREHOUSE_DEFS.length} kho hàng.\n`);
+}
+
+const SUPPLIER_DEFS = [
+  {
+    name: 'Công ty TNHH Gỗ Việt Phát',
+    contactName: 'Nguyễn Văn Phát',
+    phone: '+84 908 123 456',
+    email: 'contact@govietphat.vn',
+    provinceCode: 74,
+    provinceName: 'Bình Dương',
+    wardCode: 26536,
+    wardName: 'Phường An Thạnh',
+    addressDetail: 'Lô B5, Cụm công nghiệp Đồng An, Thuận An',
+    note: 'Chuyên cung ứng gỗ sồi Mỹ và gỗ óc chó nhập khẩu đạt chuẩn FSC. Năng lực sản xuất ổn định cho đơn hàng số lượng lớn, thời gian giao hàng trung bình 7 đến 10 ngày làm việc.',
+  },
+  {
+    name: 'Công ty Cổ phần Nội Thất Á Châu',
+    contactName: 'Trần Thị Mai',
+    phone: '+84 913 456 789',
+    email: 'sales@noithatachau.com',
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 27700,
+    wardName: 'Phường Tân Sơn Nhì',
+    addressDetail: 'Số 56 Lê Trọng Tấn',
+    note: null,
+  },
+  {
+    name: 'Công ty TNHH Vải Sợi Hàn Việt',
+    contactName: 'Lê Minh Khôi',
+    phone: '+84 987 654 321',
+    email: 'khoi.le@vaisoihanviet.vn',
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 27800,
+    wardName: 'Phường Tân Sơn Nhất',
+    addressDetail: 'Lô A3, Khu công nghiệp Tân Bình',
+    note: 'Nhà cung cấp vải bọc sofa và ghế chuyên dụng, đa dạng chất liệu (nỉ, nhung, cotton pha). Có xưởng nhuộm màu theo yêu cầu và nhận đặt mẫu riêng theo bộ sưu tập.',
+  },
+  {
+    name: 'Công ty TNHH Thép và Kim Loại Miền Nam',
+    contactName: 'Phạm Anh Tuấn',
+    phone: '+84 937 112 233',
+    email: null,
+    provinceCode: 74,
+    provinceName: 'Bình Dương',
+    wardCode: 26320,
+    wardName: 'Phường Dĩ An',
+    addressDetail: 'Lô D7, Khu công nghiệp Sóng Thần 2',
+    note: null,
+  },
+  {
+    name: 'Công ty TNHH Da Thật Sài Gòn',
+    contactName: 'Đỗ Thị Hồng',
+    phone: '+84 909 887 766',
+    email: 'hong.do@dathatsaigon.vn',
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 26404,
+    wardName: 'Phường Trung Mỹ Tây',
+    addressDetail: 'Số 12 Nguyễn Ảnh Thủ',
+    note: 'Chuyên phân phối da PU và da thật cao cấp phục vụ sản xuất sofa, ghế văn phòng. Kiểm định chất lượng theo lô, hỗ trợ mẫu thử trước khi đặt hàng.',
+  },
+  {
+    name: 'Công ty Cổ phần Kính Cường Lực Đông Á',
+    contactName: 'Vũ Quang Huy',
+    phone: '+84 977 445 566',
+    email: 'huy.vu@kinhdonga.com',
+    provinceCode: 31,
+    provinceName: 'Hải Phòng',
+    wardCode: 12898,
+    wardName: 'Phường Đông Hải',
+    addressDetail: 'Số 89 Nguyễn Văn Linh',
+    note: null,
+  },
+  {
+    name: 'Cơ sở Mây Tre Đan Cần Thơ',
+    contactName: 'Huỳnh Thị Lan',
+    phone: '+84 919 223 344',
+    email: null,
+    provinceCode: 92,
+    provinceName: 'Cần Thơ',
+    wardCode: 31240,
+    wardName: 'Xã Mỹ Khánh',
+    addressDetail: 'Ấp Nhơn Lộc 2, Phong Điền',
+    note: 'Cung cấp mây tự nhiên qua xử lý chống mối mọt và mây nhựa giả mây. Phù hợp cho các dòng sản phẩm ghế, kệ trang trí phong cách tự nhiên.',
+  },
+  {
+    name: 'Công ty TNHH Phụ Kiện Nội Thất Toàn Cầu',
+    contactName: 'Bùi Văn Đức',
+    phone: '+84 966 778 899',
+    email: 'duc.bui@phukiennoithat.vn',
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 27700,
+    wardName: 'Phường Tân Sơn Nhì',
+    addressDetail: 'Số 34 Lũy Bán Bích',
+    note: 'Cung cấp phụ kiện nội thất công nghiệp: tay nắm, bánh xe, ray trượt, bản lề giảm chấn. Có sẵn kho hàng, thời gian giao nhanh trong khu vực TP. Hồ Chí Minh.',
+  },
+];
+
+async function seedSuppliers(prisma: PrismaClient) {
+  console.log('🚚 Seeding suppliers...');
+
+  const existing = await prisma.supplier.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} nhà cung cấp, bỏ qua.\n`);
+    return;
+  }
+
+  for (const def of SUPPLIER_DEFS) {
+    await prisma.supplier.create({ data: def });
+    console.log(`  ✅ ${def.name}`);
+  }
+
+  console.log(`✅ Đã tạo ${SUPPLIER_DEFS.length} nhà cung cấp.\n`);
+}
+
+const PURCHASE_ORDERS_COUNT = 30;
+const PO_NOTES = [
+  'Đặt hàng bổ sung tồn kho định kỳ.',
+  'Nhập hàng chuẩn bị cho đợt khuyến mãi.',
+  'Bổ sung các mẫu bán chạy.',
+  null,
+  null,
+];
+
+function pickPurchaseOrderStatus(daysAgo: number): PurchaseOrderStatus {
+  if (daysAgo > 30) {
+    const roll = Math.random();
+    if (roll < 0.75) return PurchaseOrderStatus.RECEIVED;
+    if (roll < 0.9) return PurchaseOrderStatus.CANCELLED;
+    return PurchaseOrderStatus.PARTIALLY_RECEIVED;
+  }
+  if (daysAgo > 7) {
+    const roll = Math.random();
+    if (roll < 0.4) return PurchaseOrderStatus.RECEIVED;
+    if (roll < 0.7) return PurchaseOrderStatus.PARTIALLY_RECEIVED;
+    if (roll < 0.9) return PurchaseOrderStatus.ORDERED;
+    return PurchaseOrderStatus.CANCELLED;
+  }
+  const roll = Math.random();
+  if (roll < 0.4) return PurchaseOrderStatus.DRAFT;
+  if (roll < 0.8) return PurchaseOrderStatus.ORDERED;
+  return PurchaseOrderStatus.PARTIALLY_RECEIVED;
+}
+
+async function seedPurchaseOrders(prisma: PrismaClient) {
+  console.log('📦 Seeding purchase orders...');
+
+  const existing = await prisma.purchaseOrder.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} đơn nhập hàng, bỏ qua.\n`);
+    return;
+  }
+
+  const suppliers = await prisma.supplier.findMany();
+  const warehouses = await prisma.warehouse.findMany();
+  const variants = await prisma.productVariant.findMany({
+    include: { product: true },
+  });
+  const admin = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
+
+  if (
+    suppliers.length === 0 ||
+    warehouses.length === 0 ||
+    variants.length === 0
+  ) {
+    console.log(
+      '⚠️  Chưa có nhà cung cấp / kho hàng / biến thể sản phẩm, dừng seed purchase orders.\n',
+    );
+    return;
+  }
+
+  let createdOrders = 0;
+  let createdItems = 0;
+
+  for (let i = 0; i < PURCHASE_ORDERS_COUNT; i++) {
+    const supplier = randomPick(suppliers);
+    const warehouse = randomPick(warehouses);
+    const createdAt = randomPastDate(120, 0);
+    const daysAgo = Math.floor(
+      (Date.now() - createdAt.getTime()) / (24 * 60 * 60 * 1000),
+    );
+    const status = pickPurchaseOrderStatus(daysAgo);
+
+    const code = `PO${createdAt.getFullYear()}${String(createdAt.getMonth() + 1).padStart(2, '0')}-${String(i + 1).padStart(4, '0')}`;
+
+    const itemVariants = randomSample(variants, randomInt(1, 5));
+    const itemsData = itemVariants.map((variant) => {
+      const quantityOrdered = randomInt(10, 100);
+      let quantityReceived = 0;
+
+      if (status === PurchaseOrderStatus.RECEIVED) {
+        quantityReceived = quantityOrdered;
+      } else if (status === PurchaseOrderStatus.PARTIALLY_RECEIVED) {
+        quantityReceived = randomInt(1, quantityOrdered - 1);
+      }
+
+      const basePrice = variant.priceOverride
+        ? Number(variant.priceOverride)
+        : Number(variant.product.price);
+      const unitCost = roundPrice(basePrice * (randomInt(40, 65) / 100));
+
+      return {
+        variantId: variant.id,
+        quantityOrdered,
+        quantityReceived,
+        unitCost,
+      };
+    });
+
+    const expectedAt =
+      status === PurchaseOrderStatus.CANCELLED
+        ? null
+        : new Date(
+            createdAt.getTime() + randomInt(3, 14) * 24 * 60 * 60 * 1000,
+          );
+
+    const receivedAt =
+      status === PurchaseOrderStatus.RECEIVED ||
+      status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+        ? new Date(createdAt.getTime() + randomInt(2, 20) * 24 * 60 * 60 * 1000)
+        : null;
+
+    await prisma.purchaseOrder.create({
+      data: {
+        code,
+        supplierId: supplier.id,
+        warehouseId: warehouse.id,
+        status,
+        note: randomPick(PO_NOTES) ?? undefined,
+        expectedAt,
+        receivedAt,
+        createdById: admin?.id,
+        createdAt,
+        updatedAt: createdAt,
+        items: { create: itemsData },
+      },
+    });
+
+    createdOrders++;
+    createdItems += itemsData.length;
+    console.log(
+      `  ✅ ${code} - ${supplier.name} → ${warehouse.name} (${status})`,
+    );
+  }
+
+  console.log(
+    `✅ Đã tạo ${createdOrders} đơn nhập hàng, ${createdItems} dòng chi tiết.\n`,
+  );
+}
+
+const STOCK_MOVEMENT_NOTES: Partial<Record<StockMovementType, string[]>> = {
+  ADJUSTMENT: ['Kiểm kê định kỳ', 'Điều chỉnh sau kiểm kho'],
+  DAMAGED_OUT: [
+    'Hàng bị hư hỏng trong kho',
+    'Lỗi sản xuất phát hiện khi kiểm hàng',
+  ],
+  RETURN_IN: ['Khách trả hàng', 'Hoàn trả từ đơn hàng bị huỷ'],
+  TRANSFER_IN: ['Nhận điều chuyển từ kho khác'],
+  TRANSFER_OUT: ['Điều chuyển sang kho khác'],
+};
+
+const EXTRA_STOCK_MOVEMENTS_COUNT = 80;
+
+async function seedStockMovements(prisma: PrismaClient) {
+  console.log('📊 Seeding stock movements...');
+
+  const existing = await prisma.stockMovement.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} phiếu xuất/nhập kho, bỏ qua.\n`);
+    return;
+  }
+
+  const admin = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
+  const warehouses = await prisma.warehouse.findMany();
+  const variants = await prisma.productVariant.findMany();
+
+  if (warehouses.length === 0 || variants.length === 0) {
+    console.log(
+      '⚠️  Chưa có kho hàng / biến thể sản phẩm, dừng seed stock movements.\n',
+    );
+    return;
+  }
+
+  let created = 0;
+
+  const receivedItems = await prisma.purchaseOrderItem.findMany({
+    where: { quantityReceived: { gt: 0 } },
+    include: { purchaseOrder: true },
+  });
+
+  for (const item of receivedItems) {
+    await prisma.stockMovement.create({
+      data: {
+        variantId: item.variantId,
+        warehouseId: item.purchaseOrder.warehouseId,
+        type: StockMovementType.PURCHASE_IN,
+        quantity: item.quantityReceived,
+        referenceType: 'PurchaseOrder',
+        referenceId: item.purchaseOrder.id,
+        createdById: admin?.id,
+        createdAt:
+          item.purchaseOrder.receivedAt ?? item.purchaseOrder.createdAt,
+      },
+    });
+    created++;
+  }
+
+  const soldItems = await prisma.orderItem.findMany({
+    where: {
+      order: {
+        status: {
+          in: ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'],
+        },
+      },
+    },
+    include: { order: true },
+  });
+
+  const mainWarehouse = warehouses.find((w) => w.isMain) ?? warehouses[0];
+
+  for (const item of soldItems) {
+    await prisma.stockMovement.create({
+      data: {
+        variantId: item.variantId,
+        warehouseId: mainWarehouse.id,
+        type: StockMovementType.SALE_OUT,
+        quantity: -item.quantity,
+        referenceType: 'Order',
+        referenceId: item.orderId,
+        createdAt: item.order.createdAt,
+      },
+    });
+    created++;
+  }
+
+  const otherTypes: StockMovementType[] = [
+    StockMovementType.ADJUSTMENT,
+    StockMovementType.DAMAGED_OUT,
+    StockMovementType.RETURN_IN,
+    StockMovementType.TRANSFER_IN,
+    StockMovementType.TRANSFER_OUT,
+  ];
+
+  for (let i = 0; i < EXTRA_STOCK_MOVEMENTS_COUNT; i++) {
+    const type = randomPick(otherTypes);
+    const variant = randomPick(variants);
+    const warehouse = randomPick(warehouses);
+
+    const isNegative =
+      type === StockMovementType.DAMAGED_OUT ||
+      type === StockMovementType.TRANSFER_OUT;
+    const quantity = randomInt(1, 20) * (isNegative ? -1 : 1);
+
+    const notes = STOCK_MOVEMENT_NOTES[type];
+
+    await prisma.stockMovement.create({
+      data: {
+        variantId: variant.id,
+        warehouseId: warehouse.id,
+        type,
+        quantity,
+        note: notes ? randomPick(notes) : undefined,
+        createdById: admin?.id,
+        createdAt: randomPastDate(90, 0),
+      },
+    });
+    created++;
+  }
+
+  console.log(`✅ Đã tạo ${created} phiếu xuất/nhập kho.\n`);
+}
+
+async function seedNotifications(prisma: PrismaClient) {
+  console.log('🔔 Seeding notifications...');
+
+  const existing = await prisma.notification.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} thông báo, bỏ qua.\n`);
+    return;
+  }
+
+  const admin = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
+  let created = 0;
+
+  const recentOrders = await prisma.order.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 25,
+  });
+
+  for (const order of recentOrders) {
+    await prisma.notification.create({
+      data: {
+        type: NotificationType.ORDER_CREATED,
+        audience: NotificationAudience.ADMIN,
+        recipientId: admin?.id,
+        title: 'Đơn hàng mới',
+        message: `Đơn hàng ${order.orderNumber} vừa được tạo.`,
+        link: `/dashboard/orders/${order.id}`,
+        metadata: { orderId: order.id, orderNumber: order.orderNumber },
+        isRead: Math.random() < 0.5,
+        createdAt: order.createdAt,
+      },
+    });
+    created++;
+
+    if (order.status !== 'PENDING') {
+      await prisma.notification.create({
+        data: {
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          audience: NotificationAudience.USER,
+          recipientId: order.userId,
+          title: 'Cập nhật đơn hàng',
+          message: `Đơn hàng ${order.orderNumber} đã chuyển sang trạng thái ${order.status}.`,
+          link: `/orders/${order.id}`,
+          metadata: { orderId: order.id, status: order.status },
+          isRead: Math.random() < 0.3,
+          createdAt: order.updatedAt,
+        },
+      });
+      created++;
+    }
+  }
+
+  const awaitingPayments = await prisma.payment.findMany({
+    where: { status: 'AWAITING_CONFIRM' },
+    include: { order: true },
+  });
+
+  for (const payment of awaitingPayments) {
+    await prisma.notification.create({
+      data: {
+        type: NotificationType.PAYMENT_AWAITING_CONFIRM,
+        audience: NotificationAudience.ADMIN,
+        recipientId: admin?.id,
+        title: 'Thanh toán cần xác nhận',
+        message: `Đơn hàng ${payment.order.orderNumber} có thanh toán đang chờ xác nhận.`,
+        link: `/dashboard/payments/${payment.id}`,
+        metadata: { paymentId: payment.id, orderId: payment.orderId },
+        isRead: false,
+        createdAt: payment.createdAt,
+      },
+    });
+    created++;
+  }
+
+  const lowStockVariants = await prisma.productVariant.findMany({
+    where: { stock: { lt: 5 } },
+    include: { product: true },
+    take: 20,
+  });
+
+  for (const variant of lowStockVariants) {
+    await prisma.notification.create({
+      data: {
+        type: NotificationType.PRODUCT_LOW_STOCK,
+        audience: NotificationAudience.ADMIN,
+        recipientId: admin?.id,
+        title: 'Sắp hết hàng',
+        message: `Biến thể "${variant.name}" của sản phẩm "${variant.product.name}" chỉ còn ${variant.stock} sản phẩm.`,
+        link: `/dashboard/products/${variant.productId}`,
+        metadata: { variantId: variant.id, stock: variant.stock },
+        isRead: Math.random() < 0.4,
+        createdAt: randomPastDate(15, 0),
+      },
+    });
+    created++;
+  }
+
+  const recentReviews = await prisma.review.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: { product: true },
+  });
+
+  for (const review of recentReviews) {
+    await prisma.notification.create({
+      data: {
+        type: NotificationType.REVIEW_CREATED,
+        audience: NotificationAudience.ADMIN,
+        recipientId: admin?.id,
+        title: 'Đánh giá mới',
+        message: `${review.authorName} vừa đánh giá ${review.rating} sao cho sản phẩm "${review.product.name}".`,
+        link: `/dashboard/products/${review.productId}#reviews`,
+        metadata: { reviewId: review.id, rating: review.rating },
+        isRead: Math.random() < 0.5,
+        createdAt: review.createdAt,
+      },
+    });
+    created++;
+  }
+
+  const comments = await prisma.reviewComment.findMany({
+    take: 30,
+    orderBy: { createdAt: 'desc' },
+    include: { review: true },
+  });
+
+  for (const comment of comments) {
+    if (comment.parentId) {
+      const parent = await prisma.reviewComment.findUnique({
+        where: { id: comment.parentId },
+      });
+      await prisma.notification.create({
+        data: {
+          type: NotificationType.COMMENT_CREATED,
+          audience: NotificationAudience.USER,
+          recipientId: parent?.userId,
+          title: 'Có phản hồi mới',
+          message: 'Bình luận của bạn vừa nhận được phản hồi từ shop.',
+          link: `/reviews/${comment.reviewId}#comment-${comment.id}`,
+          metadata: { commentId: comment.id, reviewId: comment.reviewId },
+          isRead: Math.random() < 0.3,
+          createdAt: comment.createdAt,
+        },
+      });
+    } else {
+      await prisma.notification.create({
+        data: {
+          type: NotificationType.COMMENT_CREATED,
+          audience: NotificationAudience.ADMIN,
+          recipientId: admin?.id,
+          title: 'Bình luận mới',
+          message: 'Có khách hàng vừa bình luận vào một đánh giá.',
+          link: `/dashboard/reviews/${comment.reviewId}#comment-${comment.id}`,
+          metadata: { commentId: comment.id, reviewId: comment.reviewId },
+          isRead: Math.random() < 0.5,
+          createdAt: comment.createdAt,
+        },
+      });
+    }
+    created++;
+  }
+
+  console.log(`✅ Đã tạo ${created} thông báo.\n`);
+}
+
 async function main() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -1413,14 +2009,19 @@ async function main() {
   try {
     await seedAdmin(prisma);
     await seedCategories(prisma);
+    await seedWarehouses(prisma);
+    await seedSuppliers(prisma);
     await seedProducts(prisma);
     await seedCustomers(prisma);
     await seedRefreshTokens(prisma);
     await seedPosts(prisma);
     await seedVouchers(prisma);
     await seedOrdersAndVoucherUsages(prisma);
+    await seedPurchaseOrders(prisma);
+    await seedStockMovements(prisma);
     await seedCarts(prisma);
     await seedReviews(prisma);
+    await seedNotifications(prisma);
   } finally {
     await prisma.$disconnect();
   }

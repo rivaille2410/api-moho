@@ -20,6 +20,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { VouchersModule } from './modules/vouchers/vouchers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 
@@ -37,6 +38,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     VouchersModule,
     CommentsModule,
     ProductsModule,
+    InventoryModule,
     DashboardModule,
     CategoriesModule,
     NotificationsModule,
