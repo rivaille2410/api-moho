@@ -98,6 +98,7 @@ model User {
   deletedAt      DateTime?
 
   orders        Order[]
+  addresses     Address[]
   voucherUsages VoucherUsage[]
 
   cart Cart?
@@ -306,6 +307,32 @@ model ReviewComment {
   @@map("review_comments")
 }
 
+model Address {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  recipientName  String
+  recipientPhone String
+
+  provinceCode  Int
+  provinceName  String
+  wardCode      Int
+  wardName      String
+  addressDetail String @db.Text
+
+  isDefault Boolean @default(false)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, isDefault])
+  @@map("addresses")
+}
+
 model Order {
   id          String      @id @default(uuid())
   orderNumber String      @unique
@@ -326,6 +353,9 @@ model Order {
   note            String? @db.Text
   cancelReason    String?
 
+  addressId String?
+  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
   voucherId   String?
   voucher     Voucher? @relation(fields: [voucherId], references: [id], onDelete: SetNull)
   voucherCode String?
@@ -340,6 +370,7 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([voucherId])
+  @@index([addressId])
   @@index([createdAt])
   @@map("orders")
 }

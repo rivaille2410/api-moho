@@ -373,6 +373,7 @@ export class OrdersService {
   async updateStatus(
     id: string,
     dto: UpdateOrderStatusDto,
+    adminId: string,
   ): Promise<OrderWithItems> {
     const order = await this.findByIdOrThrow(id);
     const allowed = ALLOWED_TRANSITIONS[order.status];
@@ -388,11 +389,7 @@ export class OrdersService {
     const updated =
       dto.status === OrderStatus.CANCELLED
         ? await this.cancelOrder(order, dto.cancelReason)
-        : await this.prisma.order.update({
-            where: { id },
-            data: { status: dto.status },
-            include: ORDER_INCLUDE,
-          });
+        : await this.confirmAndUpdateStatus(order, dto.status, adminId);
 
     this.eventEmitter.emit(
       AppEvent.ORDER_STATUS_CHANGED,
@@ -400,6 +397,39 @@ export class OrdersService {
     );
 
     return updated;
+  }
+
+  private async confirmAndUpdateStatus(
+    order: OrderWithItems,
+    newStatus: OrderStatus,
+    adminId: string,
+  ): Promise<OrderWithItems> {
+    return this.prisma.$transaction(async (tx) => {
+      const latestPayment = order.payments[0];
+
+      if (
+        latestPayment &&
+        latestPayment.confirmationType === ConfirmationType.MANUAL &&
+        latestPayment.status !== PaymentStatus.CONFIRMED &&
+        (newStatus === OrderStatus.CONFIRMED ||
+          newStatus === OrderStatus.PROCESSING)
+      ) {
+        await tx.payment.update({
+          where: { id: latestPayment.id },
+          data: {
+            status: PaymentStatus.CONFIRMED,
+            confirmedById: adminId,
+            confirmedAt: new Date(),
+          },
+        });
+      }
+
+      return tx.order.update({
+        where: { id: order.id },
+        data: { status: newStatus },
+        include: ORDER_INCLUDE,
+      });
+    });
   }
 
   private async cancelOrder(

@@ -80,8 +80,9 @@ export class OrdersController {
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateOrderStatusDto,
+    @Req() req: { user: { id: string } },
   ) {
-    const order = await this.ordersService.updateStatus(id, dto);
+    const order = await this.ordersService.updateStatus(id, dto, req.user.id);
     return new OrderResponseDto(order);
   }
 
