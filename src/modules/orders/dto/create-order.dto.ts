@@ -25,6 +25,11 @@ export class CreateOrderDto {
   @IsString()
   shippingAddress: string;
 
+  @ApiProperty({ required: false, example: 'clx1234-address-id' })
+  @IsOptional()
+  @IsString()
+  addressId?: string;
+
   @ApiProperty({
     required: false,
     example: 'Please deliver during business hours',
@@ -42,6 +47,11 @@ export class CreateOrderDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  @ApiProperty({ required: false, example: 'SUMMER2026' })
+  @IsOptional()
+  @IsString()
+  voucherCode?: string;
 
   @ApiProperty({ type: [CreateOrderItemDto] })
   @IsArray()

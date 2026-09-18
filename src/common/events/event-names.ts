@@ -5,4 +5,5 @@ export enum AppEvent {
   PRODUCT_LOW_STOCK = 'product.low-stock',
   REVIEW_CREATED = 'review.created',
   COMMENT_CREATED = 'comment.created',
+  RETURN_REQUEST_CREATED = 'return-request.created',
 }

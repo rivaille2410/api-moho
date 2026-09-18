@@ -13,9 +13,9 @@ import { ApiTags } from '@nestjs/swagger';
 
 import {
   ApiListPublicReviews,
+  ApiToggleReviewHelpful,
   ApiCreateCustomerReview,
   ApiGetReviewRatingSummary,
-  ApiToggleReviewHelpful,
 } from './reviews.swagger';
 import { ReviewsService } from './reviews.service';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';

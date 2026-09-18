@@ -100,10 +100,12 @@ model User {
   orders        Order[]
   addresses     Address[]
   voucherUsages VoucherUsage[]
+  returnRequests ReturnRequest[]
 
   cart Cart?
 
   confirmedPayments Payment[] @relation("PaymentConfirmedBy")
+  refundedReturnRequests ReturnRequest[] @relation("ReturnRefundedBy")
 
   @@index([deletedAt])
   @@index([createdAt])
@@ -364,6 +366,8 @@ model Order {
 
   items OrderItem[]
 
+  returnRequests ReturnRequest[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -389,6 +393,8 @@ model OrderItem {
   thumbnailUrl String?
   price        Decimal @db.Decimal(12, 0)
   quantity     Int
+
+  returnRequestItems ReturnRequestItem[]
 
   @@index([orderId])
   @@index([productId])
@@ -596,6 +602,7 @@ enum NotificationType {
   PRODUCT_LOW_STOCK
   REVIEW_CREATED
   COMMENT_CREATED
+  RETURN_REQUEST_CREATED
 }
 
 enum NotificationAudience {
@@ -751,4 +758,101 @@ model StockMovement {
   @@index([referenceType, referenceId])
   @@index([createdAt])
   @@map("stock_movements")
+}
+
+enum ReturnReason {
+  WRONG_ITEM
+  DEFECTIVE
+  DAMAGED_ON_ARRIVAL
+  NOT_AS_DESCRIBED
+  CHANGE_OF_MIND
+  OTHER
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ITEM_RECEIVED
+  REFUNDED
+  COMPLETED
+  CANCELLED
+}
+
+enum RefundMethod {
+  BANK_TRANSFER
+  ORIGINAL_PAYMENT_METHOD
+}
+
+model ReturnRequest {
+  id   String @id @default(uuid())
+  code String @unique
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  reason     ReturnReason
+  reasonNote String?      @db.Text
+
+  status ReturnStatus @default(PENDING)
+
+  items  ReturnRequestItem[]
+  images ReturnRequestImage[]
+
+  refundAmount Decimal       @db.Decimal(12, 0)
+  refundMethod RefundMethod?
+
+  refundBankName          String?
+  refundBankAccountNumber String?
+  refundBankAccountHolder String?
+
+  refundedById      String?
+  refundedBy        User?    @relation("ReturnRefundedBy", fields: [refundedById], references: [id])
+  refundProofImageUrl String?
+
+  adminNote    String? @db.Text
+  rejectReason String? @db.Text
+
+  approvedAt     DateTime?
+  itemReceivedAt DateTime?
+  refundedAt     DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("return_requests")
+}
+
+model ReturnRequestItem {
+  id              String        @id @default(uuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(12, 0)
+
+  @@index([returnRequestId])
+  @@index([orderItemId])
+  @@map("return_request_items")
+}
+
+model ReturnRequestImage {
+  id              String        @id @default(uuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  url             String
+
+  @@index([returnRequestId])
+  @@map("return_request_images")
 }

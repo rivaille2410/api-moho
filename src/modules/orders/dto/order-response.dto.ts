@@ -3,6 +3,7 @@ import {
   Payment,
   OrderItem,
   OrderStatus,
+  ReturnStatus,
   PaymentMethod,
   PaymentStatus,
   ConfirmationType,
@@ -18,6 +19,7 @@ export type OrderWithItems = Order & {
   items: OrderItemWithReview[];
   user: { id: string; name: string; avatar: string | null };
   payments: Payment[];
+  returnRequests: { status: ReturnStatus }[];
 };
 
 class OrderItemResponseDto {
@@ -81,6 +83,12 @@ class PaymentResponseDto {
   }
 }
 
+const INACTIVE_RETURN_STATUSES: ReturnStatus[] = [
+  ReturnStatus.REJECTED,
+  ReturnStatus.CANCELLED,
+  ReturnStatus.COMPLETED,
+];
+
 export class OrderResponseDto {
   @ApiProperty() id: string;
   @ApiProperty() orderNumber: string;
@@ -98,6 +106,8 @@ export class OrderResponseDto {
   @ApiProperty() shippingAddress: string;
   @ApiProperty({ required: false }) note?: string;
   @ApiProperty({ required: false }) cancelReason?: string;
+  @ApiProperty() hasActiveReturnRequest: boolean;
+  @ApiProperty() hasCompletedReturn: boolean;
   @ApiProperty({ type: [OrderItemResponseDto] }) items: OrderItemResponseDto[];
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
@@ -120,6 +130,12 @@ export class OrderResponseDto {
     this.shippingAddress = order.shippingAddress;
     this.note = order.note ?? undefined;
     this.cancelReason = order.cancelReason ?? undefined;
+    this.hasActiveReturnRequest = (order.returnRequests ?? []).some(
+      (r) => !INACTIVE_RETURN_STATUSES.includes(r.status),
+    );
+    this.hasCompletedReturn = (order.returnRequests ?? []).some(
+      (r) => r.status === ReturnStatus.COMPLETED,
+    );
     this.items = order.items.map((i) => new OrderItemResponseDto(i));
     this.createdAt = order.createdAt;
     this.updatedAt = order.updatedAt;
