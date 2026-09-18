@@ -42,6 +42,7 @@ const ORDER_INCLUDE = {
   },
   user: { select: { id: true, name: true, avatar: true } },
   payments: { orderBy: { createdAt: 'desc' } },
+  returnRequests: { select: { status: true } },
 } satisfies Prisma.OrderInclude;
 
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {

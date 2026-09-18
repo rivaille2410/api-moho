@@ -24,6 +24,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ReturnRequestsModule } from './modules/return-requests/return-requests.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     DashboardModule,
     CategoriesModule,
     NotificationsModule,
+    ReturnRequestsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: envValidationSchema,

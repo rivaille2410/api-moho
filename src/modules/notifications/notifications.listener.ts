@@ -13,6 +13,7 @@ import { ReviewCreatedEvent } from '@/common/events/review.events';
 import { CommentCreatedEvent } from '@/common/events/comment.events';
 import { ProductLowStockEvent } from '@/common/events/product.events';
 import { PaymentAwaitingConfirmEvent } from '@/common/events/payment.events';
+import { ReturnRequestCreatedEvent } from '@/common/events/return-request.events';
 
 const statusLabel: Record<string, string> = {
   PENDING: 'Chờ xác nhận',
@@ -153,6 +154,21 @@ export class NotificationsListener {
           result.reason,
         );
       }
+    });
+  }
+
+  @OnEvent(AppEvent.RETURN_REQUEST_CREATED)
+  async handleReturnRequestCreated(event: ReturnRequestCreatedEvent) {
+    await this.safeCreate({
+      type: NotificationType.RETURN_REQUEST_CREATED,
+      title: 'Yêu cầu hoàn đơn mới',
+      message: `Đơn ${event.orderNumber} có yêu cầu hoàn trả ${event.refundAmount.toLocaleString('vi-VN')}đ, mã ${event.code}.`,
+      link: `/dashboard/return-requests/${event.returnRequestId}`,
+      metadata: {
+        returnRequestId: event.returnRequestId,
+        orderId: event.orderId,
+      },
+      target: { audience: 'ADMIN' },
     });
   }
 
