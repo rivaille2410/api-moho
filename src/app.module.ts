@@ -19,6 +19,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { VouchersModule } from './modules/vouchers/vouchers.module';
+import { ShippingModule } from './modules/shipping/shipping.module';
 import { AddressesModule } from './modules/address/addresses.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
@@ -40,6 +41,7 @@ import { ReturnRequestsModule } from './modules/return-requests/return-requests.
     VouchersModule,
     CommentsModule,
     ProductsModule,
+    ShippingModule,
     AddressesModule,
     InventoryModule,
     DashboardModule,

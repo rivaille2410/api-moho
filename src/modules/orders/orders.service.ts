@@ -9,6 +9,7 @@ import {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  ShipmentStatus,
   ConfirmationType,
 } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -40,7 +41,7 @@ const ORDER_INCLUDE = {
       },
     },
   },
-  user: { select: { id: true, name: true, avatar: true } },
+  user: { select: { id: true, name: true, avatar: true, email: true } },
   payments: { orderBy: { createdAt: 'desc' } },
   returnRequests: { select: { status: true } },
 } satisfies Prisma.OrderInclude;
@@ -371,11 +372,18 @@ export class OrdersService {
     return Buffer.from(buffer);
   }
 
-  async updateStatus(
-    id: string,
-    dto: UpdateOrderStatusDto,
-    adminId: string,
-  ): Promise<OrderWithItems> {
+  async updateStatus(id: string, dto: UpdateOrderStatusDto, adminId: string) {
+    if (
+      dto.status === OrderStatus.SHIPPED ||
+      dto.status === OrderStatus.DELIVERED
+    ) {
+      throw new ConflictException({
+        code: 'USE_SHIPMENT_TO_UPDATE',
+        message:
+          'Shipping progress is driven by shipments. Create a shipment and update its status instead',
+      });
+    }
+
     const order = await this.findByIdOrThrow(id);
     const allowed = ALLOWED_TRANSITIONS[order.status];
     const previousStatus = order.status;
@@ -467,6 +475,14 @@ export class OrdersService {
         }
       }
 
+      await tx.shipment.updateMany({
+        where: {
+          orderId: order.id,
+          status: { in: [ShipmentStatus.PREPARING, ShipmentStatus.FAILED] },
+        },
+        data: { status: ShipmentStatus.CANCELLED },
+      });
+
       return tx.order.update({
         where: { id: order.id },
         data: { status: OrderStatus.CANCELLED, cancelReason },
@@ -489,6 +505,14 @@ export class OrdersService {
       }
     }
     return [...map.values()];
+  }
+
+  async emitStatusChanged(orderId: string, previousStatus: OrderStatus) {
+    const order = await this.findByIdOrThrow(orderId);
+    this.eventEmitter.emit(
+      AppEvent.ORDER_STATUS_CHANGED,
+      new OrderStatusChangedEvent(order, previousStatus),
+    );
   }
 
   private async generateOrderNumber(

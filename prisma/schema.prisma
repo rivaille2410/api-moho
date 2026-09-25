@@ -97,15 +97,16 @@ model User {
   updatedAt      DateTime        @updatedAt
   deletedAt      DateTime?
 
-  orders        Order[]
-  addresses     Address[]
-  voucherUsages VoucherUsage[]
+  orders         Order[]
+  addresses      Address[]
+  voucherUsages  VoucherUsage[]
   returnRequests ReturnRequest[]
 
   cart Cart?
 
-  confirmedPayments Payment[] @relation("PaymentConfirmedBy")
+  confirmedPayments      Payment[]       @relation("PaymentConfirmedBy")
   refundedReturnRequests ReturnRequest[] @relation("ReturnRefundedBy")
+  createdShipments       Shipment[]      @relation("ShipmentCreatedBy") // [SHIPPING]
 
   @@index([deletedAt])
   @@index([createdAt])
@@ -158,6 +159,7 @@ model Product {
   length    Decimal?          @db.Decimal(6, 1)
   width     Decimal?          @db.Decimal(6, 1)
   height    Decimal?          @db.Decimal(6, 1)
+  weight    Decimal?          @db.Decimal(8, 2) // [SHIPPING] kg
   materials ProductMaterial[]
 
   status    ProductStatus @default(DRAFT)
@@ -366,6 +368,8 @@ model Order {
 
   items OrderItem[]
 
+  shipments Shipment[] // [SHIPPING]
+
   returnRequests ReturnRequest[]
 
   createdAt DateTime @default(now())
@@ -395,6 +399,7 @@ model OrderItem {
   quantity     Int
 
   returnRequestItems ReturnRequestItem[]
+  shipmentItems      ShipmentItem[] // [SHIPPING]
 
   @@index([orderId])
   @@index([productId])
@@ -808,8 +813,8 @@ model ReturnRequest {
   refundBankAccountNumber String?
   refundBankAccountHolder String?
 
-  refundedById      String?
-  refundedBy        User?    @relation("ReturnRefundedBy", fields: [refundedById], references: [id])
+  refundedById        String?
+  refundedBy          User?   @relation("ReturnRefundedBy", fields: [refundedById], references: [id])
   refundProofImageUrl String?
 
   adminNote    String? @db.Text
@@ -855,4 +860,105 @@ model ReturnRequestImage {
 
   @@index([returnRequestId])
   @@map("return_request_images")
+}
+
+enum ShipmentStatus {
+  PREPARING
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum ShippingProvider {
+  MANUAL
+}
+
+model ShippingZone {
+  id   String @id @default(uuid())
+  name String
+
+  provinces ShippingZoneProvince[]
+
+  baseFee       Decimal @db.Decimal(12, 0)
+  baseWeight    Decimal @default(0) @db.Decimal(8, 2)
+  extraFeePerKg Decimal @default(0) @db.Decimal(12, 0)
+
+  freeShipMinOrder Decimal? @db.Decimal(12, 0)
+
+  estimatedDaysMin Int?
+  estimatedDaysMax Int?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("shipping_zones")
+}
+
+model ShippingZoneProvince {
+  id           String       @id @default(uuid())
+  zoneId       String
+  zone         ShippingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  provinceCode Int          @unique
+  provinceName String
+
+  @@index([zoneId])
+  @@map("shipping_zone_provinces")
+}
+
+model Shipment {
+  id   String @id @default(uuid())
+  code String @unique
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  status   ShipmentStatus   @default(PREPARING)
+  provider ShippingProvider @default(MANUAL)
+
+  carrierCode  String?
+  trackingCode String?
+  driverName   String?
+  driverPhone  String?
+  vehiclePlate String?
+
+  scheduledAt  DateTime?
+  shippedAt    DateTime?
+  deliveredAt  DateTime?
+  failedReason String?   @db.Text
+
+  note String? @db.Text
+
+  items ShipmentItem[]
+
+  createdById String?
+  createdBy   User?   @relation("ShipmentCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([createdAt])
+  @@map("shipments")
+}
+
+model ShipmentItem {
+  id          String    @id @default(uuid())
+  shipmentId  String
+  shipment    Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+  quantity    Int
+
+  @@unique([shipmentId, orderItemId])
+  @@index([orderItemId])
+  @@map("shipment_items")
 }

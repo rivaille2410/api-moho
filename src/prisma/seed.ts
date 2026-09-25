@@ -3,6 +3,9 @@ import {
   PostStatus,
   VoucherType,
   OrderStatus,
+  ReturnReason,
+  ReturnStatus,
+  RefundMethod,
   VoucherScope,
   PrismaClient,
   AuthProvider,
@@ -10,6 +13,7 @@ import {
   VoucherStatus,
   PaymentMethod,
   PaymentStatus,
+  ShipmentStatus,
   ConfirmationType,
   NotificationType,
   StockMovementType,
@@ -53,6 +57,17 @@ function randomPastDate(maxDaysAgo: number, minDaysAgo = 0): Date {
   const offset = randomInt(minDaysAgo, maxDaysAgo);
   const jitterMs = randomInt(0, day - 1);
   return new Date(Date.now() - offset * day - jitterMs);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+/** Tránh sinh mốc thời gian nằm trong tương lai cho dữ liệu "đã xảy ra". */
+function capAtNow(date: Date): Date {
+  return date.getTime() > Date.now() ? new Date() : date;
 }
 
 function randomToken(length = 40): string {
@@ -294,6 +309,11 @@ async function buildProductData(
       }
     : {};
 
+  // Cân nặng (kg) - dùng để tính phí vận chuyển theo khu vực
+  const weight = hasDimensions
+    ? randomInt(50, 800) / 10
+    : randomInt(2, 50) / 10;
+
   const materials = randomSample(MATERIALS_POOL, randomInt(1, 3)).map(
     (material, i) => ({
       label: i === 0 ? 'Chất liệu chính' : 'Chất liệu phụ',
@@ -325,6 +345,7 @@ async function buildProductData(
     price,
     compareAtPrice,
     ...dimensions,
+    weight,
     categoryId: category.id,
     status,
     soldCount:
@@ -707,21 +728,32 @@ function randomPhone(): string {
   return `+84 ${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`;
 }
 
+const STREETS = [
+  'Nguyễn Huệ',
+  'Lê Lợi',
+  'Điện Biên Phủ',
+  'Hai Bà Trưng',
+  'Trần Hưng Đạo',
+  'Nguyễn Thị Minh Khai',
+  'Phạm Văn Đồng',
+  'Võ Văn Kiệt',
+  'Cách Mạng Tháng 8',
+];
+
 function randomAddress(): string {
   const a = randomPick(CITY_ADDRESSES);
   const houseNo = randomInt(1, 300);
-  const street = randomPick([
-    'Nguyễn Huệ',
-    'Lê Lợi',
-    'Điện Biên Phủ',
-    'Hai Bà Trưng',
-    'Trần Hưng Đạo',
-    'Nguyễn Thị Minh Khai',
-    'Phạm Văn Đồng',
-    'Võ Văn Kiệt',
-    'Cách Mạng Tháng 8',
-  ]);
+  const street = randomPick(STREETS);
   return `${houseNo} đường ${street}, ${a.ward}, ${a.district}, ${a.city}`;
+}
+
+/** Ghép địa chỉ dạng snapshot (Order.shippingAddress) từ một Address (tỉnh + phường). */
+function formatAddress(a: {
+  addressDetail: string;
+  wardName: string;
+  provinceName: string;
+}): string {
+  return `${a.addressDetail}, ${a.wardName}, ${a.provinceName}`;
 }
 
 const CUSTOMERS_COUNT = 40;
@@ -774,6 +806,96 @@ async function seedCustomers(prisma: PrismaClient) {
   console.log(
     `✅ Đã tạo ${created} khách hàng (mật khẩu mặc định: Customer@123).\n`,
   );
+}
+
+/**
+ * Mã tỉnh/phường lấy cùng nguồn với dữ liệu kho/nhà cung cấp bên dưới (mã mẫu),
+ * cần đối chiếu lại với provinces.open-api.vn nếu dùng cho môi trường thật.
+ */
+const ADDRESS_LOCATIONS = [
+  {
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 26734,
+    wardName: 'Phường Bình Hưng Hòa',
+  },
+  {
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 27700,
+    wardName: 'Phường Tân Sơn Nhì',
+  },
+  {
+    provinceCode: 79,
+    provinceName: 'TP. Hồ Chí Minh',
+    wardCode: 26404,
+    wardName: 'Phường Trung Mỹ Tây',
+  },
+  {
+    provinceCode: 1,
+    provinceName: 'Hà Nội',
+    wardCode: 771,
+    wardName: 'Phường Hoàng Liệt',
+  },
+  {
+    provinceCode: 48,
+    provinceName: 'Đà Nẵng',
+    wardCode: 20194,
+    wardName: 'Phường Hòa Thọ Tây',
+  },
+  {
+    provinceCode: 31,
+    provinceName: 'Hải Phòng',
+    wardCode: 12898,
+    wardName: 'Phường Đông Hải',
+  },
+  {
+    provinceCode: 92,
+    provinceName: 'Cần Thơ',
+    wardCode: 31240,
+    wardName: 'Xã Mỹ Khánh',
+  },
+];
+
+/**
+ * Mỗi khách hàng có 1 địa chỉ mặc định, khoảng 30% có thêm 1 địa chỉ phụ.
+ * Đơn hàng seed sau đó sẽ snapshot lại từ các địa chỉ này.
+ */
+async function seedAddresses(prisma: PrismaClient) {
+  console.log('🏠 Seeding addresses...');
+
+  const customers = await prisma.user.findMany({
+    where: { role: Role.CUSTOMER },
+    include: { addresses: { select: { id: true }, take: 1 } },
+  });
+
+  if (customers.length === 0) {
+    console.log('⚠️  Chưa có khách hàng, dừng seed addresses.\n');
+    return;
+  }
+
+  let created = 0;
+
+  for (const customer of customers) {
+    if (customer.addresses.length > 0) continue;
+
+    const count = Math.random() < 0.3 ? 2 : 1;
+    const locations = randomSample(ADDRESS_LOCATIONS, count);
+
+    await prisma.address.createMany({
+      data: locations.map((location, i) => ({
+        userId: customer.id,
+        recipientName: i === 0 ? customer.name : randomVietnameseName(),
+        recipientPhone: randomPhone(),
+        ...location,
+        addressDetail: `${randomInt(1, 300)} đường ${randomPick(STREETS)}`,
+        isDefault: i === 0,
+      })),
+    });
+    created += locations.length;
+  }
+
+  console.log(`✅ Đã tạo ${created} địa chỉ giao hàng.\n`);
 }
 
 async function seedRefreshTokens(prisma: PrismaClient) {
@@ -876,6 +998,121 @@ async function seedPosts(prisma: PrismaClient) {
   console.log(`✅ Đã tạo ${created} bài viết.\n`);
 }
 
+/**
+ * Vùng vận chuyển: mỗi tỉnh chỉ thuộc đúng 1 vùng (ShippingZoneProvince.provinceCode là unique).
+ * Mã tỉnh theo mã hành chính chuẩn (cùng hệ mã với kho / nhà cung cấp bên dưới).
+ */
+const SHIPPING_ZONE_DEFS = [
+  {
+    name: 'Nội thành TP. Hồ Chí Minh',
+    provinces: [{ code: 79, name: 'TP. Hồ Chí Minh' }],
+    baseFee: 30_000,
+    baseWeight: 30,
+    extraFeePerKg: 1_500,
+    freeShipMinOrder: 2_000_000,
+    estimatedDaysMin: 1,
+    estimatedDaysMax: 2,
+    isActive: true,
+  },
+  {
+    name: 'Miền Nam (ngoài TP. Hồ Chí Minh)',
+    provinces: [
+      { code: 74, name: 'Bình Dương' },
+      { code: 75, name: 'Đồng Nai' },
+      { code: 77, name: 'Bà Rịa - Vũng Tàu' },
+      { code: 80, name: 'Long An' },
+      { code: 82, name: 'Tiền Giang' },
+      { code: 92, name: 'Cần Thơ' },
+    ],
+    baseFee: 50_000,
+    baseWeight: 30,
+    extraFeePerKg: 2_500,
+    freeShipMinOrder: 3_000_000,
+    estimatedDaysMin: 2,
+    estimatedDaysMax: 4,
+    isActive: true,
+  },
+  {
+    name: 'Miền Trung',
+    provinces: [
+      { code: 46, name: 'Thừa Thiên Huế' },
+      { code: 48, name: 'Đà Nẵng' },
+      { code: 49, name: 'Quảng Nam' },
+      { code: 52, name: 'Bình Định' },
+      { code: 56, name: 'Khánh Hòa' },
+      { code: 68, name: 'Lâm Đồng' },
+    ],
+    baseFee: 90_000,
+    baseWeight: 30,
+    extraFeePerKg: 3_500,
+    freeShipMinOrder: 4_000_000,
+    estimatedDaysMin: 3,
+    estimatedDaysMax: 5,
+    isActive: true,
+  },
+  {
+    name: 'Miền Bắc',
+    provinces: [
+      { code: 1, name: 'Hà Nội' },
+      { code: 31, name: 'Hải Phòng' },
+      { code: 22, name: 'Quảng Ninh' },
+      { code: 27, name: 'Bắc Ninh' },
+      { code: 30, name: 'Hải Dương' },
+    ],
+    baseFee: 100_000,
+    baseWeight: 30,
+    extraFeePerKg: 4_000,
+    freeShipMinOrder: 4_000_000,
+    estimatedDaysMin: 3,
+    estimatedDaysMax: 6,
+    isActive: true,
+  },
+  {
+    name: 'Vùng xa (tạm ngưng phục vụ)',
+    provinces: [
+      { code: 95, name: 'Bạc Liêu' },
+      { code: 96, name: 'Cà Mau' },
+    ],
+    baseFee: 150_000,
+    baseWeight: 20,
+    extraFeePerKg: 6_000,
+    freeShipMinOrder: null,
+    estimatedDaysMin: 5,
+    estimatedDaysMax: 8,
+    isActive: false,
+  },
+];
+
+async function seedShippingZones(prisma: PrismaClient) {
+  console.log('🗺️  Seeding shipping zones...');
+
+  const existing = await prisma.shippingZone.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} vùng vận chuyển, bỏ qua.\n`);
+    return;
+  }
+
+  for (let i = 0; i < SHIPPING_ZONE_DEFS.length; i++) {
+    const { provinces, ...zone } = SHIPPING_ZONE_DEFS[i];
+
+    await prisma.shippingZone.create({
+      data: {
+        ...zone,
+        sortOrder: i,
+        provinces: {
+          create: provinces.map((p) => ({
+            provinceCode: p.code,
+            provinceName: p.name,
+          })),
+        },
+      },
+    });
+    console.log(`  ✅ ${zone.name} (${provinces.length} tỉnh/thành)`);
+  }
+
+  console.log(`✅ Đã tạo ${SHIPPING_ZONE_DEFS.length} vùng vận chuyển.\n`);
+}
+
 const ORDERS_COUNT = 150;
 const CANCEL_REASONS = [
   'Khách hàng đổi ý không mua nữa',
@@ -883,14 +1120,6 @@ const CANCEL_REASONS = [
   'Thời gian giao hàng quá lâu',
   'Tìm được sản phẩm tốt hơn ở nơi khác',
   'Không liên lạc được với khách hàng',
-];
-
-const COURIER_NAMES = [
-  'Giao Hàng Nhanh',
-  'Giao Hàng Tiết Kiệm',
-  'Viettel Post',
-  'J&T Express',
-  'Ninja Van',
 ];
 
 const GATEWAY_METHODS = [
@@ -975,8 +1204,9 @@ async function seedPaymentForOrder(
         status,
         amount,
         collectedAmount: status === PaymentStatus.CONFIRMED ? amount : null,
+        // Không dùng đơn vị vận chuyển bên thứ 3: người thu tiền là tài xế nội bộ
         courierName:
-          isFulfilled || isCancelled ? randomPick(COURIER_NAMES) : null,
+          status === PaymentStatus.CONFIRMED ? randomVietnameseName() : null,
         confirmedById: status === PaymentStatus.CONFIRMED ? adminId : null,
         confirmedAt:
           status === PaymentStatus.CONFIRMED
@@ -1094,6 +1324,7 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
 
   const customers = await prisma.user.findMany({
     where: { role: Role.CUSTOMER },
+    include: { addresses: true },
   });
   const variants = await prisma.productVariant.findMany({
     include: { product: true },
@@ -1117,6 +1348,10 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
 
   for (let i = 0; i < ORDERS_COUNT; i++) {
     const customer = randomPick(customers);
+    const address =
+      customer.addresses.length > 0
+        ? randomPick(customer.addresses)
+        : undefined;
     const itemCount = randomInt(1, 4);
     const chosenVariants = randomSample(variants, itemCount);
 
@@ -1171,9 +1406,10 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
         shippingFee,
         discount,
         total,
-        recipientName: customer.name,
-        recipientPhone: randomPhone(),
-        shippingAddress: randomAddress(),
+        recipientName: address?.recipientName ?? customer.name,
+        recipientPhone: address?.recipientPhone ?? randomPhone(),
+        shippingAddress: address ? formatAddress(address) : randomAddress(),
+        addressId: address?.id,
         note:
           Math.random() < 0.15
             ? 'Giao hàng giờ hành chính, gọi trước khi giao.'
@@ -1216,6 +1452,344 @@ async function seedOrdersAndVoucherUsages(prisma: PrismaClient) {
 
   console.log(
     `✅ Đã tạo ${createdOrders} đơn hàng, ${createdItems} order items, ${createdPayments} payments, ${createdVoucherUsages} voucher usages.\n`,
+  );
+}
+
+const SHIPMENT_NOTES = [
+  'Gọi khách trước 30 phút khi đến.',
+  'Hàng cồng kềnh, cần 2 người bốc xếp.',
+  'Giao trong giờ hành chính.',
+  'Kiểm tra hàng cùng khách trước khi bàn giao.',
+];
+
+const SHIPMENT_FAILED_REASONS = [
+  'Khách không có nhà, không liên lạc được.',
+  'Sai địa chỉ giao hàng, không tìm được nơi nhận.',
+  'Khách từ chối nhận hàng.',
+];
+
+function randomVehiclePlate(): string {
+  return `${randomInt(50, 59)}${randomPick(['A', 'B', 'C', 'D', 'F'])}-${randomInt(100, 999)}.${randomInt(10, 99)}`;
+}
+
+/**
+ * Kế hoạch seed vận đơn: chỉ một số đơn hàng cho mỗi trạng thái, đủ để phủ mọi ShipmentStatus.
+ * Đơn DELIVERED có ~30% khả năng được tách làm 2 vận đơn (mỗi vận đơn một phần sản phẩm).
+ */
+const SHIPMENT_PLANS: {
+  orderStatus: OrderStatus;
+  shipmentStatus: ShipmentStatus;
+  count: number;
+}[] = [
+  {
+    orderStatus: OrderStatus.DELIVERED,
+    shipmentStatus: ShipmentStatus.DELIVERED,
+    count: 12,
+  },
+  {
+    orderStatus: OrderStatus.SHIPPED,
+    shipmentStatus: ShipmentStatus.IN_TRANSIT,
+    count: 6,
+  },
+  {
+    orderStatus: OrderStatus.SHIPPED,
+    shipmentStatus: ShipmentStatus.FAILED,
+    count: 2,
+  },
+  {
+    orderStatus: OrderStatus.PROCESSING,
+    shipmentStatus: ShipmentStatus.PREPARING,
+    count: 5,
+  },
+  {
+    orderStatus: OrderStatus.CANCELLED,
+    shipmentStatus: ShipmentStatus.CANCELLED,
+    count: 2,
+  },
+];
+
+async function seedShipments(prisma: PrismaClient) {
+  console.log('🚛 Seeding shipments...');
+
+  const existing = await prisma.shipment.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} vận đơn, bỏ qua.\n`);
+    return;
+  }
+
+  const admin = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
+  const orders = await prisma.order.findMany({
+    where: {
+      status: {
+        in: [
+          OrderStatus.DELIVERED,
+          OrderStatus.SHIPPED,
+          OrderStatus.PROCESSING,
+          OrderStatus.CANCELLED,
+        ],
+      },
+    },
+    include: { items: true },
+  });
+
+  if (orders.length === 0) {
+    console.log('⚠️  Chưa có đơn hàng phù hợp, dừng seed shipments.\n');
+    return;
+  }
+
+  const shippedStatuses: ShipmentStatus[] = [
+    ShipmentStatus.IN_TRANSIT,
+    ShipmentStatus.DELIVERED,
+    ShipmentStatus.FAILED,
+  ];
+
+  const usedOrderIds = new Set<string>();
+  let seq = 0;
+  let createdShipments = 0;
+
+  for (const plan of SHIPMENT_PLANS) {
+    const candidates = orders.filter(
+      (o) => o.status === plan.orderStatus && !usedOrderIds.has(o.id),
+    );
+    const picked = randomSample(candidates, plan.count);
+
+    for (const order of picked) {
+      usedOrderIds.add(order.id);
+
+      const shouldSplit =
+        plan.shipmentStatus === ShipmentStatus.DELIVERED &&
+        order.items.length >= 2 &&
+        Math.random() < 0.3;
+      const groups = shouldSplit
+        ? [order.items.slice(0, 1), order.items.slice(1)]
+        : [order.items];
+
+      for (const groupItems of groups) {
+        seq++;
+
+        const createdAt = capAtNow(addDays(order.createdAt, randomInt(0, 2)));
+        const scheduledAt = addDays(createdAt, randomInt(1, 3));
+        const shippedAt = shippedStatuses.includes(plan.shipmentStatus)
+          ? capAtNow(addDays(createdAt, randomInt(0, 1)))
+          : null;
+        const deliveredAt =
+          shippedAt && plan.shipmentStatus === ShipmentStatus.DELIVERED
+            ? capAtNow(addDays(shippedAt, randomInt(1, 4)))
+            : null;
+
+        const code = `VD${createdAt.getFullYear()}${String(createdAt.getMonth() + 1).padStart(2, '0')}${String(createdAt.getDate()).padStart(2, '0')}-${String(seq).padStart(4, '0')}`;
+
+        await prisma.shipment.create({
+          data: {
+            code,
+            orderId: order.id,
+            status: plan.shipmentStatus,
+            driverName: randomVietnameseName(),
+            driverPhone: randomPhone(),
+            vehiclePlate: randomVehiclePlate(),
+            scheduledAt,
+            shippedAt,
+            deliveredAt,
+            failedReason:
+              plan.shipmentStatus === ShipmentStatus.FAILED
+                ? randomPick(SHIPMENT_FAILED_REASONS)
+                : null,
+            note: Math.random() < 0.3 ? randomPick(SHIPMENT_NOTES) : null,
+            createdById: admin?.id,
+            createdAt,
+            updatedAt: deliveredAt ?? shippedAt ?? createdAt,
+            items: {
+              create: groupItems.map((item) => ({
+                orderItemId: item.id,
+                quantity: item.quantity,
+              })),
+            },
+          },
+        });
+
+        createdShipments++;
+        console.log(
+          `  ✅ ${code} - ${order.orderNumber} (${plan.shipmentStatus})`,
+        );
+      }
+    }
+  }
+
+  console.log(`✅ Đã tạo ${createdShipments} vận đơn.\n`);
+}
+
+/**
+ * Phủ đủ mọi ReturnStatus, mỗi phần tử tương ứng 1 yêu cầu đổi trả (chọn từ các đơn đã giao).
+ */
+const RETURN_STATUS_PLAN: ReturnStatus[] = [
+  ReturnStatus.PENDING,
+  ReturnStatus.PENDING,
+  ReturnStatus.APPROVED,
+  ReturnStatus.REJECTED,
+  ReturnStatus.ITEM_RECEIVED,
+  ReturnStatus.REFUNDED,
+  ReturnStatus.COMPLETED,
+  ReturnStatus.COMPLETED,
+  ReturnStatus.CANCELLED,
+];
+
+const RETURN_REASON_NOTES: Record<ReturnReason, string> = {
+  WRONG_ITEM: 'Giao nhầm màu so với đơn đặt hàng.',
+  DEFECTIVE: 'Sản phẩm bị lỗi ở phần khung, lắp ráp không khớp.',
+  DAMAGED_ON_ARRIVAL: 'Thùng hàng móp méo, sản phẩm bị trầy xước khi nhận.',
+  NOT_AS_DESCRIBED: 'Kích thước thực tế nhỏ hơn mô tả trên website.',
+  CHANGE_OF_MIND: 'Không còn nhu cầu sử dụng sản phẩm.',
+  OTHER: 'Sản phẩm không phù hợp với không gian nhà.',
+};
+
+const RETURN_REJECT_REASONS = [
+  'Sản phẩm đã qua sử dụng, không đủ điều kiện đổi trả.',
+  'Yêu cầu được gửi quá thời hạn đổi trả theo chính sách.',
+];
+
+const BANK_NAMES = ['Vietcombank', 'Techcombank', 'MB Bank', 'ACB', 'BIDV'];
+
+async function seedReturnRequests(prisma: PrismaClient) {
+  console.log('↩️  Seeding return requests...');
+
+  const existing = await prisma.returnRequest.count();
+  if (existing > 0) {
+    console.log(`ℹ️  Đã có ${existing} yêu cầu đổi trả, bỏ qua.\n`);
+    return;
+  }
+
+  const admin = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
+  const deliveredOrders = await prisma.order.findMany({
+    where: { status: OrderStatus.DELIVERED },
+    include: { items: true },
+  });
+
+  if (deliveredOrders.length === 0) {
+    console.log('⚠️  Chưa có đơn hàng đã giao, dừng seed return requests.\n');
+    return;
+  }
+
+  const approvedOrLater: ReturnStatus[] = [
+    ReturnStatus.APPROVED,
+    ReturnStatus.ITEM_RECEIVED,
+    ReturnStatus.REFUNDED,
+    ReturnStatus.COMPLETED,
+  ];
+  const receivedOrLater: ReturnStatus[] = [
+    ReturnStatus.ITEM_RECEIVED,
+    ReturnStatus.REFUNDED,
+    ReturnStatus.COMPLETED,
+  ];
+  const refundedOrLater: ReturnStatus[] = [
+    ReturnStatus.REFUNDED,
+    ReturnStatus.COMPLETED,
+  ];
+
+  const picked = randomSample(deliveredOrders, RETURN_STATUS_PLAN.length);
+  let createdRequests = 0;
+  let createdItems = 0;
+
+  for (let i = 0; i < picked.length; i++) {
+    const order = picked[i];
+    const status = RETURN_STATUS_PLAN[i];
+    const reason = randomPick(Object.values(ReturnReason));
+    const createdAt = capAtNow(addDays(order.createdAt, randomInt(5, 15)));
+
+    const chosenItems = randomSample(
+      order.items,
+      randomInt(1, Math.min(2, order.items.length)),
+    );
+    const itemsData = chosenItems.map((item) => ({
+      orderItemId: item.id,
+      quantity: randomInt(1, item.quantity),
+      unitPrice: Number(item.price),
+    }));
+    const refundAmount = itemsData.reduce(
+      (sum, it) => sum + it.quantity * it.unitPrice,
+      0,
+    );
+
+    const isBankTransfer = Math.random() < 0.6;
+    const refundMethod = isBankTransfer
+      ? RefundMethod.BANK_TRANSFER
+      : RefundMethod.ORIGINAL_PAYMENT_METHOD;
+
+    const approvedAt = approvedOrLater.includes(status)
+      ? capAtNow(addDays(createdAt, randomInt(0, 1)))
+      : null;
+    const itemReceivedAt =
+      approvedAt && receivedOrLater.includes(status)
+        ? capAtNow(addDays(approvedAt, randomInt(2, 5)))
+        : null;
+    const refundedAt =
+      itemReceivedAt && refundedOrLater.includes(status)
+        ? capAtNow(addDays(itemReceivedAt, randomInt(1, 2)))
+        : null;
+    const completedAt =
+      refundedAt && status === ReturnStatus.COMPLETED
+        ? capAtNow(addDays(refundedAt, randomInt(0, 1)))
+        : null;
+    const cancelledAt =
+      status === ReturnStatus.CANCELLED
+        ? capAtNow(addDays(createdAt, randomInt(0, 2)))
+        : null;
+
+    const updatedAt =
+      completedAt ??
+      refundedAt ??
+      itemReceivedAt ??
+      approvedAt ??
+      cancelledAt ??
+      (status === ReturnStatus.REJECTED
+        ? capAtNow(addDays(createdAt, 1))
+        : createdAt);
+
+    const code = `RT${createdAt.getFullYear()}${String(createdAt.getMonth() + 1).padStart(2, '0')}-${String(i + 1).padStart(4, '0')}`;
+
+    await prisma.returnRequest.create({
+      data: {
+        code,
+        orderId: order.id,
+        userId: order.userId,
+        reason,
+        reasonNote: RETURN_REASON_NOTES[reason],
+        status,
+        refundAmount,
+        refundMethod,
+        refundBankName: isBankTransfer ? randomPick(BANK_NAMES) : null,
+        refundBankAccountNumber: isBankTransfer
+          ? `${randomInt(100000000, 999999999)}${randomInt(100, 999)}`
+          : null,
+        refundBankAccountHolder: isBankTransfer
+          ? slugify(order.recipientName).replace(/-/g, ' ').toUpperCase()
+          : null,
+        refundedById: refundedAt ? admin?.id : undefined,
+        adminNote:
+          approvedAt && Math.random() < 0.5
+            ? 'Đã liên hệ khách hàng để xác nhận tình trạng sản phẩm.'
+            : null,
+        rejectReason:
+          status === ReturnStatus.REJECTED
+            ? randomPick(RETURN_REJECT_REASONS)
+            : null,
+        approvedAt,
+        itemReceivedAt,
+        refundedAt,
+        completedAt,
+        cancelledAt,
+        createdAt,
+        updatedAt,
+        items: { create: itemsData },
+      },
+    });
+
+    createdRequests++;
+    createdItems += itemsData.length;
+    console.log(`  ✅ ${code} - ${order.orderNumber} (${status})`);
+  }
+
+  console.log(
+    `✅ Đã tạo ${createdRequests} yêu cầu đổi trả, ${createdItems} dòng sản phẩm.\n`,
   );
 }
 
@@ -1994,6 +2568,32 @@ async function seedNotifications(prisma: PrismaClient) {
     created++;
   }
 
+  const returnRequests = await prisma.returnRequest.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    include: { order: true },
+  });
+
+  for (const returnRequest of returnRequests) {
+    await prisma.notification.create({
+      data: {
+        type: NotificationType.RETURN_REQUEST_CREATED,
+        audience: NotificationAudience.ADMIN,
+        recipientId: admin?.id,
+        title: 'Yêu cầu đổi trả mới',
+        message: `Đơn hàng ${returnRequest.order.orderNumber} có yêu cầu đổi trả ${returnRequest.code}.`,
+        link: `/dashboard/returns/${returnRequest.id}`,
+        metadata: {
+          returnRequestId: returnRequest.id,
+          orderId: returnRequest.orderId,
+        },
+        isRead: Math.random() < 0.5,
+        createdAt: returnRequest.createdAt,
+      },
+    });
+    created++;
+  }
+
   console.log(`✅ Đã tạo ${created} thông báo.\n`);
 }
 
@@ -2013,10 +2613,14 @@ async function main() {
     await seedSuppliers(prisma);
     await seedProducts(prisma);
     await seedCustomers(prisma);
+    await seedAddresses(prisma);
     await seedRefreshTokens(prisma);
     await seedPosts(prisma);
     await seedVouchers(prisma);
+    await seedShippingZones(prisma);
     await seedOrdersAndVoucherUsages(prisma);
+    await seedShipments(prisma);
+    await seedReturnRequests(prisma);
     await seedPurchaseOrders(prisma);
     await seedStockMovements(prisma);
     await seedCarts(prisma);
