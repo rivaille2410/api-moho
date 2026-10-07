@@ -8,6 +8,8 @@ import {
 } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+import { getSignedQuantity } from '../stock-movement.utils';
+
 type StockMovementWithRelations = StockMovement & {
   variant: ProductVariant & {
     product: Product & { images: ProductImage[] };
@@ -31,7 +33,17 @@ export class StockMovementResponseDto {
   @ApiProperty() warehouseName: string;
 
   @ApiProperty({ enum: StockMovementType }) type: StockMovementType;
-  @ApiProperty() quantity: number;
+
+  @ApiProperty({ description: 'Absolute quantity moved', example: 12 })
+  quantity: number;
+
+  @ApiProperty({
+    description:
+      'Signed change applied to stock: positive = in, negative = out',
+    example: -12,
+  })
+  delta: number;
+
   @ApiPropertyOptional() referenceType?: string | null;
   @ApiPropertyOptional() referenceId?: string | null;
   @ApiPropertyOptional() note?: string | null;
@@ -55,7 +67,8 @@ export class StockMovementResponseDto {
     this.warehouseName = movement.warehouse.name;
 
     this.type = movement.type;
-    this.quantity = movement.quantity;
+    this.quantity = Math.abs(movement.quantity);
+    this.delta = getSignedQuantity(movement.type, movement.quantity);
     this.referenceType = movement.referenceType;
     this.referenceId = movement.referenceId;
     this.note = movement.note;

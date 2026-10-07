@@ -32,6 +32,8 @@ import {
   ApiRemoveProductImage,
   ApiBulkDeleteProducts,
   ApiUpdateProductStatus,
+  ApiRemoveProductImages,
+  ApiSetProductThumbnail,
 } from './products.swagger';
 import { ProductsService } from './products.service';
 import { Roles } from '@/modules/auth/decorators/roles.decorator';
@@ -47,6 +49,7 @@ import { UpdateVariantDto } from './dto/update-variant.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
 import { BulkDeleteProductsDto } from './dto/builk-delete-products.dto';
 import { UpdateProductStatusDto } from './dto/update-product-status.dto';
+import { BulkDeleteProductImagesDto } from './dto/bulk-delete-product-images.dto';
 
 @ApiTags('Products')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -187,5 +190,25 @@ export class ProductsController {
   @ApiDeleteProduct()
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     await this.productsService.remove(id);
+  }
+
+  @Delete(':id/images')
+  @ApiRemoveProductImages()
+  async removeImages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BulkDeleteProductImagesDto,
+  ) {
+    const updated = await this.productsService.removeImages(id, dto.imageIds);
+    return new ProductResponseDto(updated);
+  }
+
+  @Patch(':id/images/:imageId/thumbnail')
+  @ApiSetProductThumbnail()
+  async setThumbnail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+  ) {
+    const updated = await this.productsService.setThumbnail(id, imageId);
+    return new ProductResponseDto(updated);
   }
 }

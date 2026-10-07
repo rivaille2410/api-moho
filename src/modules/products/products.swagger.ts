@@ -369,3 +369,43 @@ export const ApiBulkDeleteProducts = () =>
       description: 'One or more product IDs not found.',
     }),
   );
+
+export function ApiRemoveProductImages() {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Remove multiple product images',
+      description:
+        'Remove several images from the product gallery at once. Fails entirely if any image ID does not belong to the product. If the thumbnail is removed, the first remaining general image becomes the thumbnail. Requires admin role.',
+    }),
+    ApiOkResponse({ type: ProductResponseDto }),
+    ApiBadRequestResponse({ description: 'Validation failed' }),
+    ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
+    ApiNotFoundResponse({
+      description: 'Product not found, or one or more images not found',
+    }),
+  );
+}
+
+export function ApiSetProductThumbnail() {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Set product thumbnail',
+      description:
+        'Mark a general product image as the product thumbnail. Any previous thumbnail is unset. Variant images cannot be thumbnails. Requires admin role.',
+    }),
+    ApiOkResponse({ type: ProductResponseDto }),
+    ApiBadRequestResponse({ description: 'Image belongs to a variant' }),
+    ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
+    ApiNotFoundResponse({
+      description: 'Product not found, or image not found on this product',
+    }),
+  );
+}

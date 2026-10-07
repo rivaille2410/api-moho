@@ -1,6 +1,12 @@
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { Prisma, StockMovementType } from '@prisma/client';
-import { Injectable, BadRequestException } from '@nestjs/common';
+
+import { INBOUND_TYPES, OUTBOUND_TYPES } from './stock-movement.utils';
 
 import { QueryStockMovementsDto } from './dto/query-stock-movements.dto';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
@@ -8,17 +14,21 @@ import { StockMovementResponseDto } from './dto/stock-movement-response.dto';
 
 type Tx = Prisma.TransactionClient;
 
-const INBOUND_TYPES: StockMovementType[] = [
-  StockMovementType.PURCHASE_IN,
-  StockMovementType.RETURN_IN,
-  StockMovementType.TRANSFER_IN,
-];
+const DEFAULT_VARIANT_NAME = 'Default';
 
-const OUTBOUND_TYPES: StockMovementType[] = [
-  StockMovementType.SALE_OUT,
-  StockMovementType.DAMAGED_OUT,
-  StockMovementType.TRANSFER_OUT,
-];
+const MOVEMENT_INCLUDE = {
+  variant: {
+    include: {
+      product: {
+        include: {
+          images: { where: { isThumbnail: true }, take: 1 },
+        },
+      },
+      images: { take: 1, orderBy: { sortOrder: 'asc' } },
+    },
+  },
+  warehouse: true,
+} satisfies Prisma.StockMovementInclude;
 
 @Injectable()
 export class StockMovementsService {
@@ -35,19 +45,7 @@ export class StockMovementsService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: {
-          variant: {
-            include: {
-              product: {
-                include: {
-                  images: { where: { isThumbnail: true }, take: 1 },
-                },
-              },
-              images: { take: 1, orderBy: { sortOrder: 'asc' } },
-            },
-          },
-          warehouse: true,
-        },
+        include: MOVEMENT_INCLUDE,
       }),
       this.prisma.stockMovement.count({ where }),
     ]);
@@ -115,7 +113,8 @@ export class StockMovementsService {
         variantId,
         warehouseId,
         type,
-        quantity: Math.abs(delta),
+        quantity:
+          type === StockMovementType.ADJUSTMENT ? delta : Math.abs(delta),
         referenceType,
         referenceId,
         note,
@@ -132,33 +131,108 @@ export class StockMovementsService {
   }
 
   async createAdjustment(dto: CreateStockAdjustmentDto) {
-    const movement = await this.prisma.$transaction((tx) =>
-      this.recordMovement(tx, {
-        variantId: dto.variantId,
+    const movement = await this.prisma.$transaction(async (tx) => {
+      await this.assertWarehouseExists(tx, dto.warehouseId);
+      const variantId = await this.resolveVariantId(tx, dto);
+
+      return this.recordMovement(tx, {
+        variantId,
         warehouseId: dto.warehouseId,
-        type: StockMovementType.ADJUSTMENT,
+        type: dto.type ?? StockMovementType.ADJUSTMENT,
         delta: dto.delta,
         note: dto.note,
         referenceType: 'Manual',
-      }),
-    );
+      });
+    });
 
     return this.prisma.stockMovement.findUniqueOrThrow({
       where: { id: movement.id },
-      include: {
-        variant: {
-          include: {
-            product: {
-              include: {
-                images: { where: { isThumbnail: true }, take: 1 },
-              },
-            },
-            images: { take: 1, orderBy: { sortOrder: 'asc' } },
-          },
+      include: MOVEMENT_INCLUDE,
+    });
+  }
+
+  private async assertWarehouseExists(tx: Tx, warehouseId: string) {
+    const warehouse = await tx.warehouse.findFirst({
+      where: { id: warehouseId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!warehouse) {
+      throw new NotFoundException({
+        code: 'WAREHOUSE_NOT_FOUND',
+        message: `Warehouse ${warehouseId} not found`,
+      });
+    }
+  }
+
+  private async resolveVariantId(
+    tx: Tx,
+    dto: { variantId?: string; productId?: string },
+  ): Promise<string> {
+    if (dto.variantId) {
+      const variant = await tx.productVariant.findUnique({
+        where: { id: dto.variantId },
+        select: { id: true },
+      });
+
+      if (!variant) {
+        throw new NotFoundException({
+          code: 'VARIANT_NOT_FOUND',
+          message: `Variant ${dto.variantId} not found`,
+        });
+      }
+
+      return variant.id;
+    }
+
+    if (!dto.productId) {
+      throw new BadRequestException({
+        code: 'VARIANT_OR_PRODUCT_REQUIRED',
+        message: 'Either variantId or productId must be provided',
+      });
+    }
+
+    const product = await tx.product.findFirst({
+      where: { id: dto.productId, deletedAt: null },
+      select: {
+        id: true,
+        variants: {
+          select: { id: true },
+          orderBy: { sortOrder: 'asc' },
+          take: 2,
         },
-        warehouse: true,
       },
     });
+
+    if (!product) {
+      throw new NotFoundException({
+        code: 'PRODUCT_NOT_FOUND',
+        message: `Product ${dto.productId} not found`,
+      });
+    }
+
+    if (product.variants.length > 1) {
+      throw new BadRequestException({
+        code: 'VARIANT_REQUIRED',
+        message: 'Product has multiple variants, please specify variantId',
+      });
+    }
+
+    if (product.variants.length === 1) {
+      return product.variants[0].id;
+    }
+
+    const defaultVariant = await tx.productVariant.create({
+      data: {
+        productId: product.id,
+        name: DEFAULT_VARIANT_NAME,
+        stock: 0,
+        sortOrder: 0,
+      },
+      select: { id: true },
+    });
+
+    return defaultVariant.id;
   }
 
   private paginate<T>(

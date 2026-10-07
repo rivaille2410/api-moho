@@ -1,12 +1,37 @@
+import { StockMovementType } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
+
+export const MANUAL_ADJUSTMENT_TYPES = [
+  StockMovementType.ADJUSTMENT,
+  StockMovementType.DAMAGED_OUT,
+] as const;
 
 export class CreateStockAdjustmentDto {
-  @ApiProperty()
+  @ApiPropertyOptional({
+    description:
+      'ID of the product variant to adjust. Takes priority over productId. ' +
+      'Omit it when the product has no variants and pass productId instead.',
+    format: 'uuid',
+  })
+  @IsOptional()
   @IsUUID()
-  variantId: string;
+  variantId?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional({
+    description:
+      'ID of the product. Used only when variantId is not provided. ' +
+      'If the product has no variant, a default variant is created automatically.',
+    format: 'uuid',
+  })
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
+
+  @ApiProperty({
+    description: 'ID of the warehouse where the adjustment is applied.',
+    format: 'uuid',
+  })
   @IsUUID()
   warehouseId: string;
 
@@ -18,7 +43,19 @@ export class CreateStockAdjustmentDto {
   @IsInt()
   delta: number;
 
-  @ApiPropertyOptional({ example: 'Kiểm kê cuối tháng, lệch 3 sản phẩm' })
+  @ApiPropertyOptional({
+    enum: MANUAL_ADJUSTMENT_TYPES,
+    default: StockMovementType.ADJUSTMENT,
+    description: 'Reason type. DAMAGED_OUT requires a negative delta.',
+  })
+  @IsOptional()
+  @IsIn(MANUAL_ADJUSTMENT_TYPES)
+  type?: StockMovementType;
+
+  @ApiPropertyOptional({
+    description: 'Optional note explaining the adjustment.',
+    example: 'Month-end stocktake, 3 items missing',
+  })
   @IsOptional()
   @IsString()
   note?: string;
