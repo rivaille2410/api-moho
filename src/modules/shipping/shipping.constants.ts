@@ -26,6 +26,7 @@ export const SHIPMENT_INCLUDE = {
       orderItem: {
         select: {
           id: true,
+          productId: true,
           productName: true,
           variantName: true,
           thumbnailUrl: true,

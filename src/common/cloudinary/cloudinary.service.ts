@@ -99,6 +99,15 @@ export class CloudinaryService {
     });
   }
 
+  async deleteAssets(publicIds: string[]): Promise<void> {
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < publicIds.length; i += CHUNK_SIZE) {
+      await this.cloudinary.api.delete_resources(
+        publicIds.slice(i, i + CHUNK_SIZE),
+      );
+    }
+  }
+
   extractPublicId(url: string): string | null {
     const match = url.match(/\/upload\/(?:v\d+\/)?([^.]+)\.[a-zA-Z0-9]+$/);
     return match ? match[1] : null;

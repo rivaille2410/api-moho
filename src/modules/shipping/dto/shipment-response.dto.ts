@@ -28,6 +28,9 @@ export class ShipmentItemResponseDto {
   orderItemId: string;
 
   @ApiProperty()
+  productId: string;
+
+  @ApiProperty()
   productName: string;
 
   @ApiProperty()
@@ -127,6 +130,7 @@ export class ShipmentResponseDto {
     this.order = shipment.order;
     this.items = shipment.items.map((item) => ({
       orderItemId: item.orderItemId,
+      productId: item.orderItem.productId,
       productName: item.orderItem.productName,
       variantName: item.orderItem.variantName,
       thumbnailUrl: item.orderItem.thumbnailUrl,

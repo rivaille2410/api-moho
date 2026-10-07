@@ -30,6 +30,8 @@ const PRODUCT_INCLUDE = {
   images: { where: { variantId: null }, orderBy: { sortOrder: 'asc' } },
 } satisfies Prisma.ProductInclude;
 
+const DEFAULT_VARIANT_NAME = 'Default';
+
 type ProductWithRelations = Prisma.ProductGetPayload<{
   include: typeof PRODUCT_INCLUDE;
 }>;
@@ -91,7 +93,7 @@ export class ProductsService {
   async findAllPublic(query: QueryPublicProductsDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    const where = this.buildPublicWhere(query);
+    const where = await this.buildPublicWhere(query);
     const orderBy = this.buildPublicOrderBy(query.sortBy);
 
     const [data, totalItems] = await this.prisma.$transaction([
@@ -121,13 +123,17 @@ export class ProductsService {
   }
 
   async getAvailableColorsPublic(categoryId?: string) {
+    const categoryIds = categoryId
+      ? await this.getCategoryAndDescendantIds(categoryId)
+      : undefined;
+
     const variants = await this.prisma.productVariant.findMany({
       where: {
         colorName: { not: null },
         product: {
           deletedAt: null,
           status: ProductStatus.ACTIVE,
-          ...(categoryId && { categoryId }),
+          ...(categoryIds && { categoryId: { in: categoryIds } }),
         },
       },
       distinct: ['colorName'],
@@ -313,7 +319,7 @@ export class ProductsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const where = {
-      ...this.buildPublicWhere(query),
+      ...(await this.buildPublicWhere(query)),
       soldCount: { gt: 0 },
     };
 
@@ -373,9 +379,9 @@ export class ProductsService {
     };
   }
 
-  private buildPublicWhere(
+  private async buildPublicWhere(
     query: QueryPublicProductsDto,
-  ): Prisma.ProductWhereInput {
+  ): Promise<Prisma.ProductWhereInput> {
     const {
       search,
       categoryId,
@@ -387,11 +393,14 @@ export class ProductsService {
     } = query;
 
     const variantFilter = this.buildVariantFilter(outOfStock, colors);
+    const categoryIds = categoryId
+      ? await this.getCategoryAndDescendantIds(categoryId)
+      : undefined;
 
     return {
       deletedAt: null,
       status: ProductStatus.ACTIVE,
-      ...(categoryId && { categoryId }),
+      ...(categoryIds && { categoryId: { in: categoryIds } }),
       ...(variantFilter && { variants: variantFilter }),
       ...(onSale && {
         compareAtPrice: { not: null },
@@ -409,6 +418,25 @@ export class ProductsService {
         ],
       }),
     };
+  }
+
+  private async getCategoryAndDescendantIds(
+    categoryId: string,
+  ): Promise<string[]> {
+    const ids = new Set<string>([categoryId]);
+    let frontier = [categoryId];
+
+    while (frontier.length > 0) {
+      const children = await this.prisma.category.findMany({
+        where: { parentId: { in: frontier } },
+        select: { id: true },
+      });
+
+      frontier = children.map((c) => c.id).filter((id) => !ids.has(id));
+      frontier.forEach((id) => ids.add(id));
+    }
+
+    return [...ids];
   }
 
   async exportToExcel(query: QueryProductsDto): Promise<Buffer> {
@@ -490,18 +518,24 @@ export class ProductsService {
                 })),
               }
             : undefined,
-          variants: dto.variants?.length
-            ? {
-                create: dto.variants.map((v, i) => ({
+          variants: {
+            create: dto.variants?.length
+              ? dto.variants.map((v, i) => ({
                   name: v.name,
                   colorHex: v.colorHex,
                   colorName: v.colorName,
                   priceOverride: v.priceOverride,
                   stock: v.stock,
                   sortOrder: v.sortOrder ?? i,
-                })),
-              }
-            : undefined,
+                }))
+              : [
+                  {
+                    name: DEFAULT_VARIANT_NAME,
+                    stock: 0,
+                    sortOrder: 0,
+                  },
+                ],
+          },
         },
         include: PRODUCT_INCLUDE,
       });
@@ -593,7 +627,39 @@ export class ProductsService {
 
   async removeVariant(productId: string, variantId: string) {
     await this.findVariantOrThrow(productId, variantId);
-    await this.prisma.productVariant.delete({ where: { id: variantId } });
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.productVariant.delete({ where: { id: variantId } });
+
+        const remaining = await tx.productVariant.count({
+          where: { productId },
+        });
+        if (remaining === 0) {
+          await tx.productVariant.create({
+            data: {
+              productId,
+              name: DEFAULT_VARIANT_NAME,
+              stock: 0,
+              sortOrder: 0,
+            },
+          });
+        }
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new ConflictException({
+          code: 'VARIANT_HAS_HISTORY',
+          message:
+            'This variant has stock movements, orders or purchase orders and cannot be deleted',
+        });
+      }
+      throw error;
+    }
+
     return this.findByIdOrThrow(productId);
   }
 
@@ -619,7 +685,7 @@ export class ProductsService {
       files.map((file) => this.cloudinary.uploadProductImage(file)),
     );
 
-    let count = await this.prisma.productImage.count({
+    const count = await this.prisma.productImage.count({
       where: { productId, variantId: variantId ?? null },
     });
 
@@ -631,12 +697,13 @@ export class ProductsService {
             variantId,
             url: result.secure_url,
             sortOrder: count + i,
-            isThumbnail: count + i === 0,
+            isThumbnail: !variantId && count + i === 0,
           },
         }),
       ),
     );
 
+    await this.ensureThumbnail(productId);
     return this.findByIdOrThrow(productId);
   }
 
@@ -654,7 +721,84 @@ export class ProductsService {
     }
 
     await this.prisma.productImage.delete({ where: { id: imageId } });
+    await this.ensureThumbnail(productId);
+
     return this.findByIdOrThrow(productId);
+  }
+
+  async removeImages(productId: string, imageIds: string[]) {
+    await this.findByIdOrThrow(productId);
+
+    const images = await this.prisma.productImage.findMany({
+      where: { id: { in: imageIds }, productId },
+    });
+
+    const foundIds = new Set(images.map((image) => image.id));
+    const notFoundIds = imageIds.filter((id) => !foundIds.has(id));
+    if (notFoundIds.length > 0) {
+      throw new NotFoundException({
+        code: 'IMAGES_NOT_FOUND',
+        message: `The following image IDs were not found on this product: ${notFoundIds.join(', ')}`,
+      });
+    }
+
+    const publicIds = images
+      .map((image) => this.cloudinary.extractPublicId(image.url))
+      .filter((id): id is string => !!id);
+
+    if (publicIds.length > 0) {
+      await this.cloudinary.deleteAssets(publicIds).catch(() => undefined);
+    }
+
+    await this.prisma.productImage.deleteMany({
+      where: { id: { in: imageIds }, productId },
+    });
+    await this.ensureThumbnail(productId);
+
+    return this.findByIdOrThrow(productId);
+  }
+
+  async setThumbnail(productId: string, imageId: string) {
+    const image = await this.prisma.productImage.findFirst({
+      where: { id: imageId, productId },
+    });
+    if (!image) {
+      throw new NotFoundException('Image not found on this product');
+    }
+    if (image.variantId) {
+      throw new BadRequestException({
+        code: 'VARIANT_IMAGE_CANNOT_BE_THUMBNAIL',
+        message: 'Only general product images can be set as thumbnail',
+      });
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.productImage.updateMany({
+        where: { productId },
+        data: { isThumbnail: false },
+      }),
+      this.prisma.productImage.update({
+        where: { id: imageId },
+        data: { isThumbnail: true },
+      }),
+    ]);
+
+    return this.findByIdOrThrow(productId);
+  }
+
+  private async ensureThumbnail(productId: string) {
+    const general = await this.prisma.productImage.findMany({
+      where: { productId, variantId: null },
+      orderBy: { sortOrder: 'asc' },
+      select: { id: true, isThumbnail: true },
+    });
+
+    if (general.length === 0 || general.some((i) => i.isThumbnail)) return;
+
+    await this.prisma.productImage.update({
+      where: { id: general[0].id },
+      data: { isThumbnail: true },
+    });
   }
 
   async remove(id: string) {
