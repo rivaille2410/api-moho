@@ -1,23 +1,19 @@
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
-import { Get, Post, Body, Query, UseGuards, Controller } from '@nestjs/common';
+import { Get, Post, Body, Query, Controller } from '@nestjs/common';
 
 import {
   ApiListStockMovements,
   ApiCreateStockAdjustment,
 } from './stock-movements.swagger';
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
 import { StockMovementsService } from './stock-movements.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import { QueryStockMovementsDto } from './dto/query-stock-movements.dto';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
 import { StockMovementResponseDto } from './dto/stock-movement-response.dto';
+import { Admin } from '@/common/decorators';
 
 @ApiTags('Stock Movements')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('stock-movements')
 export class StockMovementsController {
   constructor(private readonly stockMovementsService: StockMovementsService) {}

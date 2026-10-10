@@ -7,9 +7,9 @@ import {
   UseGuards,
   Controller,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 
 import {
   ApiMe,
@@ -27,7 +27,6 @@ import {
 } from './auth.swagger';
 import { AuthService } from './auth.service';
 
-import { RolesGuard } from './guards/roles.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { RefreshTokenGuard } from './guards/refresh-token.guard';
 
@@ -40,14 +39,17 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 
-import { Roles } from './decorators/roles.decorator';
-import { Public } from '@/common/decorators/public.decorator';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
+import type { AppConfig } from '@/config/app-config';
+import { Admin, Public, CurrentUser } from '@/common/decorators';
+import type { CurrentUserPayload } from './interfaces/current-user.interface';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: ConfigService<AppConfig, true>,
+  ) {}
 
   @Public()
   @Post('register')
@@ -57,8 +59,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @Roles(Role.ADMIN)
-  @UseGuards(RolesGuard)
+  @Admin()
   @Post('register-admin')
   @ApiRegisterAdmin()
   registerAdmin(@Body() dto: CreateAdminDto) {
@@ -110,10 +111,21 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
   @ApiGoogleCallback()
-  async googleCallback(@Req() req: any, @Res() res: Response) {
+  async googleCallback(
+    @Req()
+    req: {
+      user: {
+        googleId: string;
+        email: string;
+        name: string;
+        avatar?: string;
+      };
+    },
+    @Res() res: Response,
+  ) {
     const tokens = await this.authService.validateGoogleUser(req.user);
 
-    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+    const frontendUrl = this.config.getOrThrow('frontendUrl', { infer: true });
 
     res.redirect(
       `${frontendUrl}/auth/callback?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`,
@@ -124,7 +136,10 @@ export class AuthController {
   @UseGuards(RefreshTokenGuard)
   @Post('refresh')
   @ApiRefresh()
-  refresh(@Body() _dto: RefreshTokenDto, @CurrentUser() user: any) {
+  refresh(
+    @Body() _dto: RefreshTokenDto,
+    @CurrentUser() user: { id: string; refreshToken: string },
+  ) {
     return this.authService.refresh(user.id, user.refreshToken);
   }
 
@@ -132,14 +147,17 @@ export class AuthController {
   @UseGuards(RefreshTokenGuard)
   @Post('logout')
   @ApiLogout()
-  logout(@Body() _dto: RefreshTokenDto, @CurrentUser() user: any) {
+  logout(
+    @Body() _dto: RefreshTokenDto,
+    @CurrentUser() user: { id: string; refreshToken: string },
+  ) {
     return this.authService.logout(user.id, user.refreshToken);
   }
 
   @ApiBearerAuth()
   @Post('me')
   @ApiMe()
-  me(@CurrentUser() user: any) {
+  me(@CurrentUser() user: CurrentUserPayload) {
     return user;
   }
 }

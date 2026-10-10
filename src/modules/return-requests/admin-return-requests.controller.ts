@@ -4,19 +4,13 @@ import {
   Param,
   Patch,
   Query,
-  UseGuards,
   Controller,
   UploadedFile,
   ParseUUIDPipe,
   UseInterceptors,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import {
   ApiProcessRefund,
@@ -28,17 +22,16 @@ import {
   ApiCompleteReturnRequest,
 } from './return-requests.swagger';
 import { ReturnRequestsService } from './return-requests.service';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
 
 import { ProcessRefundDto } from './dto/process-refund.dto';
 import { RejectReturnRequestDto } from './dto/reject-return-request.dto';
 import { QueryReturnRequestsDto } from './dto/query-return-requests.dto';
 import { ApproveReturnRequestDto } from './dto/approve-return-request.dto';
 import { ReturnRequestResponseDto } from './dto/return-request-response.dto';
+import { Admin, CurrentUser } from '@/common/decorators';
 
 @ApiTags('Return Requests (Admin)')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('admin/return-requests')
 export class AdminReturnRequestsController {
   constructor(private readonly returnRequestsService: ReturnRequestsService) {}

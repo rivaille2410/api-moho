@@ -10,6 +10,8 @@ import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { ConfigService } from '@nestjs/config';
 
+import type { AppConfig } from '@/config/app-config';
+
 interface AuthPayload {
   sub: string;
   role: Role;
@@ -38,7 +40,7 @@ export class NotificationsGateway
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService<AppConfig, true>,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -52,13 +54,15 @@ export class NotificationsGateway
       if (!token) throw new Error('No token provided');
 
       const payload = this.jwtService.verify<AuthPayload>(token, {
-        secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
+        secret: this.configService.getOrThrow('jwt.accessSecret', {
+          infer: true,
+        }),
       });
 
-      client.join(`user:${payload.sub}`);
+      await client.join(`user:${payload.sub}`);
 
       if (payload.role === Role.ADMIN) {
-        client.join('admins');
+        await client.join('admins');
       }
 
       client.data.userId = payload.sub;

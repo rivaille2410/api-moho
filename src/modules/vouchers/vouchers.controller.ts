@@ -1,6 +1,5 @@
 import {
   Get,
-  Req,
   Res,
   Post,
   Body,
@@ -9,13 +8,10 @@ import {
   Query,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
-import type { Request } from 'express';
 import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 
@@ -31,10 +27,6 @@ import {
   ApiExportVouchers,
 } from './vouchers.swagger';
 import { VouchersService } from './vouchers.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import { QueryVouchersDto } from './dto/query-vouchers.dto';
 import { CreateVoucherDto } from './dto/create-voucher.dto';
@@ -44,6 +36,8 @@ import { ValidateVoucherDto } from './dto/validate-voucher.dto';
 import { BulkDeleteVouchersDto } from './dto/bulk-delete-vouchers.dto';
 import { UpdateVoucherStatusDto } from './dto/update-voucher-status.dto';
 import { VoucherListItemResponseDto } from './dto/voucher-list-item-response.dto';
+import { Admin, CurrentUser } from '@/common/decorators';
+import { sendExcelFile, excelFilename } from '@/common/utils';
 
 @ApiTags('Vouchers')
 @Controller('vouchers')
@@ -51,8 +45,7 @@ export class VouchersController {
   constructor(private readonly vouchersService: VouchersService) {}
 
   @Get()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiListVouchers()
   async findAll(@Query() query: QueryVouchersDto) {
     const { data, meta } = await this.vouchersService.findAll(query);
@@ -69,8 +62,7 @@ export class VouchersController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiCreateVoucher()
   async create(@Body() dto: CreateVoucherDto) {
     const voucher = await this.vouchersService.create(dto);
@@ -81,29 +73,24 @@ export class VouchersController {
   }
 
   @Get('export')
+  @Admin()
   @ApiExportVouchers()
   async exportVouchers(@Query() query: QueryVouchersDto, @Res() res: Response) {
     const buffer = await this.vouchersService.exportToExcel(query);
-
-    res.set({
-      'Content-Type':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="vouchers-${Date.now()}.xlsx"`,
-    });
-    res.send(buffer);
+    sendExcelFile(res, excelFilename('vouchers'), buffer);
   }
 
   @Post('validate')
-  @UseGuards(JwtAuthGuard)
   @ApiValidateVoucher()
-  async validate(@Req() req: Request, @Body() dto: ValidateVoucherDto) {
-    const userId = (req.user as { id: string }).id;
+  async validate(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ValidateVoucherDto,
+  ) {
     return this.vouchersService.validateForOrder(userId, dto);
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiGetVoucherById()
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const voucher = await this.vouchersService.findByIdOrThrow(id);
@@ -114,8 +101,7 @@ export class VouchersController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiUpdateVoucher()
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -129,8 +115,7 @@ export class VouchersController {
   }
 
   @Patch(':id/status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiUpdateVoucherStatus()
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -144,16 +129,14 @@ export class VouchersController {
   }
 
   @Delete('bulk')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiBulkDeleteVouchers()
   async bulkRemove(@Body() dto: BulkDeleteVouchersDto) {
     return this.vouchersService.bulkRemove(dto.ids);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiDeleteVoucher()
   async remove(@Param('id', ParseUUIDPipe) id: string) {

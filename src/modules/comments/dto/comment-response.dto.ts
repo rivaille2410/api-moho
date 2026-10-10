@@ -49,7 +49,7 @@ export class CommentResponseDto {
     this.createdAt = comment.createdAt;
     this.updatedAt = comment.updatedAt;
     this.replies = comment.replies?.map(
-      (reply) => new CommentResponseDto(reply as CommentWithRelations),
+      (reply) => new CommentResponseDto(reply),
     );
   }
 }

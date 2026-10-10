@@ -24,7 +24,7 @@ import {
   ACTIVE_SHIPMENT_STATUSES,
   SHIPMENT_STATUS_TRANSITIONS,
 } from './shipping.constants';
-import { buildPaginationMeta } from './shipping.utils';
+import { buildPaginationMeta, getPagination } from '@/common/utils';
 import { QueryShipmentsDto } from './dto/query-shipments.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { UpdateShipmentDto } from './dto/update-shipment.dto';
@@ -62,15 +62,14 @@ export class ShipmentsService {
   }
 
   async findAll(query: QueryShipmentsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.shipment.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
         include: SHIPMENT_INCLUDE,
       }),

@@ -1,16 +1,18 @@
-import { NestFactory } from '@nestjs/core';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
+import type { AppConfig } from './config/app-config';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
-  const config = app.get(ConfigService);
+  const config = app.get(ConfigService<AppConfig, true>);
 
   app.enableCors({
-    origin: config.getOrThrow<string>('FRONTEND_URL'),
+    origin: config.getOrThrow('frontendUrl', { infer: true }),
     credentials: true,
   });
 
@@ -19,6 +21,7 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
@@ -34,10 +37,11 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  const port = config.get<number>('PORT') ?? 4000;
+  const port = config.get('port', { infer: true }) ?? 4000;
   await app.listen(port);
-  console.log(`🚀 Server running at http://localhost:${port}`);
-  console.log(`📄 Swagger docs at http://localhost:${port}/docs`);
+
+  logger.log(`Server running at http://localhost:${port}`);
+  logger.log(`Swagger docs at http://localhost:${port}/docs`);
 }
 
-bootstrap();
+void bootstrap();

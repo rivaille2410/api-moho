@@ -1,11 +1,4 @@
-import {
-  Get,
-  Patch,
-  Param,
-  UseGuards,
-  Controller,
-  ParseUUIDPipe,
-} from '@nestjs/common';
+import { Get, Patch, Param, Controller, ParseUUIDPipe } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
@@ -16,13 +9,11 @@ import {
   ApiListNotifications,
 } from './notifications.swagger';
 import { NotificationsService } from './notifications.service';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '@/modules/auth/interfaces/current-user.interface';
+import { CurrentUser } from '@/common/decorators';
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}

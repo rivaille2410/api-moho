@@ -4,11 +4,12 @@ import { OnEvent } from '@nestjs/event-emitter';
 
 import { MailService } from './mail.service';
 
+import type { AppConfig } from '@/config/app-config';
 import {
+  AppEvent,
   OrderCreatedEvent,
   OrderStatusChangedEvent,
-} from '@/common/events/order.events';
-import { AppEvent } from '@/common/events/event-names';
+} from '@/common/events';
 
 const statusLabel: Record<string, string> = {
   PENDING: 'Chờ xác nhận',
@@ -23,12 +24,14 @@ const statusLabel: Record<string, string> = {
 export class MailListener {
   constructor(
     private readonly mailService: MailService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService<AppConfig, true>,
   ) {}
 
   @OnEvent(AppEvent.ORDER_CREATED)
   async handleOrderCreated({ order }: OrderCreatedEvent) {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    const frontendUrl = this.configService.getOrThrow('frontendUrl', {
+      infer: true,
+    });
     await this.mailService.sendOrderConfirmationEmail({
       to: (order.user as any).email,
       orderNumber: order.orderNumber,
@@ -39,7 +42,9 @@ export class MailListener {
 
   @OnEvent(AppEvent.ORDER_STATUS_CHANGED)
   async handleOrderStatusChanged({ order }: OrderStatusChangedEvent) {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    const frontendUrl = this.configService.getOrThrow('frontendUrl', {
+      infer: true,
+    });
     await this.mailService.sendOrderStatusUpdateEmail({
       to: (order.user as any).email,
       orderNumber: order.orderNumber,

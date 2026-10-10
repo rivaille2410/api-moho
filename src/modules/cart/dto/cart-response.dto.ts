@@ -44,7 +44,9 @@ class CartItemResponseDto {
     this.stock = item.variant.stock;
     this.lineTotal = price.mul(item.quantity).toString();
     this.dimensions =
-      length && width && height ? `${length} x ${width} x ${height} cm` : null;
+      length && width && height
+        ? `${length.toString()} x ${width.toString()} x ${height.toString()} cm`
+        : null;
     this.materials =
       item.variant.product.materials.map((m) => m.value).join(', ') || null;
   }

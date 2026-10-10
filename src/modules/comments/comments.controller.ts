@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   Delete,
-  UseGuards,
   Controller,
   ParseUUIDPipe,
   UnauthorizedException,
@@ -16,13 +15,8 @@ import { ApiTags } from '@nestjs/swagger';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { QueryCommentsDto } from './dto/query-comments.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
-
 import { CommentsService } from './comments.service';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-
-import { Public } from '@/common/decorators/public.decorator';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
-
+import { Public, CurrentUser } from '@/common/decorators';
 import {
   ApiListComments,
   ApiCreateComment,
@@ -54,7 +48,6 @@ export class CommentsController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   @ApiCreateComment()
   async create(
     @Param('slug') slug: string,
@@ -76,7 +69,6 @@ export class CommentsController {
   }
 
   @Delete(':commentId')
-  @UseGuards(JwtAuthGuard)
   @ApiRemoveComment()
   async remove(
     @Param('commentId', ParseUUIDPipe) commentId: string,

@@ -1,14 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PaginationMetaDto } from '@/common/dto';
 import { ReviewResponseDto } from './review-response.dto';
-
-class PaginationMetaDto {
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() totalItems: number;
-  @ApiProperty() totalPages: number;
-  @ApiProperty() hasNextPage: boolean;
-  @ApiProperty() hasPreviousPage: boolean;
-}
 
 export class PaginatedReviewsResponseDto {
   @ApiProperty({ type: [ReviewResponseDto] })

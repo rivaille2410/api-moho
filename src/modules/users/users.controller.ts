@@ -8,7 +8,6 @@ import {
   Query,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   UploadedFile,
@@ -16,7 +15,6 @@ import {
   UseInterceptors,
   ParseFilePipeBuilder,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import type { User } from '@prisma/client';
@@ -45,22 +43,15 @@ import { UserResponseDto } from './dto/user-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { BulkDeleteUsersDto } from './dto/bulk-delete-users.dto';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
+import { Admin, CurrentUser } from '@/common/decorators';
 
 @ApiTags('Users')
-@UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiListUsers()
   async findAll(@Query() query: QueryUsersDto) {
     const { data, meta } = await this.usersService.findAll(query);
@@ -71,8 +62,7 @@ export class UsersController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiCreateUser()
   async create(@Body() dto: CreateUserDto) {
     const user = await this.usersService.createByAdmin(dto);
@@ -114,8 +104,7 @@ export class UsersController {
   }
 
   @Get('export')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiExportUsers()
   async exportUsers(@Query() query: QueryUsersDto, @Res() res: Response) {
     const buffer = await this.usersService.exportToExcel(query);
@@ -129,8 +118,7 @@ export class UsersController {
   }
 
   @Get(':id')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiGetUserById()
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const user = await this.usersService.findByIdOrThrow(id);
@@ -138,8 +126,7 @@ export class UsersController {
   }
 
   @Patch(':id/role')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiChangeUserRole()
   async changeRole(
     @Param('id', ParseUUIDPipe) id: string,
@@ -155,8 +142,7 @@ export class UsersController {
   }
 
   @Patch(':id/ban')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiBanUser()
   async ban(
     @Param('id', ParseUUIDPipe) id: string,
@@ -167,8 +153,7 @@ export class UsersController {
   }
 
   @Patch(':id/unban')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiUnbanUser()
   async unban(@Param('id', ParseUUIDPipe) id: string) {
     const unbanned = await this.usersService.unban(id);
@@ -176,8 +161,7 @@ export class UsersController {
   }
 
   @Delete('bulk')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @ApiBulkDeleteUsers()
   async bulkRemove(
     @Body() dto: BulkDeleteUsersDto,
@@ -187,8 +171,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Admin()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiDeleteUser()
   async remove(@Param('id', ParseUUIDPipe) id: string) {

@@ -1,11 +1,9 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '@/prisma/prisma.module';
 
 import { StockMovementsService } from './stock-movements.service';
 import { StockMovementsController } from './stock-movements.controller';
 
 @Module({
-  imports: [PrismaModule],
   controllers: [StockMovementsController],
   providers: [StockMovementsService],
   exports: [StockMovementsService],

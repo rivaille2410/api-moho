@@ -6,8 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
-import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
-import { IS_OPTIONAL_AUTH_KEY } from '../../../common/decorators/optional-auth.decorator';
+import { IS_PUBLIC_KEY, IS_OPTIONAL_AUTH_KEY } from '@/common/decorators';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt-access') {

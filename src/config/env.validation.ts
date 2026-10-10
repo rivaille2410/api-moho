@@ -5,7 +5,7 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development'),
   PORT: Joi.number().default(4000),
-  FRONTEND_URL: Joi.string().required(),
+  FRONTEND_URL: Joi.string().uri().required(),
 
   DATABASE_URL: Joi.string().required(),
   DIRECT_URL: Joi.string().required(),
@@ -24,7 +24,11 @@ export const envValidationSchema = Joi.object({
   RESEND_API_KEY: Joi.string().required(),
   MAIL_FROM: Joi.string().default('onboarding@resend.dev'),
 
-  REDIS_HOST: Joi.string().default('localhost'),
-  REDIS_PORT: Joi.number().default(6379),
-  REDIS_PASSWORD: Joi.string().allow('').optional(),
+  CLOUDINARY_CLOUD_NAME: Joi.string().optional(),
+  CLOUDINARY_API_KEY: Joi.string().optional(),
+  CLOUDINARY_API_SECRET: Joi.string().optional(),
+
+  GOOGLE_CLIENT_ID: Joi.string().required(),
+  GOOGLE_CLIENT_SECRET: Joi.string().required(),
+  GOOGLE_CALLBACK_URL: Joi.string().uri().required(),
 });

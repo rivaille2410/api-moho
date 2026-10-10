@@ -6,12 +6,10 @@ import {
   Patch,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 
 import {
@@ -23,19 +21,15 @@ import {
   ApiBulkDeleteWarehouses,
 } from './warehouses.swagger';
 import { WarehousesService } from './warehouses.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { WarehouseResponseDto } from './dto/warehouse-response.dto';
 import { BulkDeleteWarehousesDto } from './dto/bulk-delete-warehouses.dto';
+import { Admin } from '@/common/decorators';
 
 @ApiTags('Warehouses')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('warehouses')
 export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}

@@ -1,11 +1,8 @@
 import {
   Injectable,
-  ConflictException,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import slugify from 'slugify';
-import * as ExcelJS from 'exceljs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -14,6 +11,15 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
 import { CategoryTreeNodeDto } from './dto/category-tree-node.dto';
 import { QueryPublicCategoriesDto } from './dto/query-public-categories.dto';
+
+import {
+  ensureUniqueSlug,
+  assertExportLimit,
+  createExcelBuffer,
+  formatDateVi,
+  rethrowUniqueConstraint,
+  type ExcelColumn,
+} from '@/common/utils';
 
 const WITH_COUNT = {
   _count: { select: { products: true, children: true } },
@@ -111,22 +117,18 @@ export class CategoriesService {
         include: WITH_COUNT,
       });
     } catch (error) {
-      this.handleUniqueConstraintError(error);
-      throw error;
+      rethrowUniqueConstraint(
+        error,
+        'A category with a similar name already exists',
+      );
     }
   }
 
   async exportToExcel(query: QueryCategoriesDto): Promise<Buffer> {
     const where = this.buildWhere(query);
 
-    const MAX_EXPORT_ROWS = 20000;
     const totalItems = await this.prisma.category.count({ where });
-    if (totalItems > MAX_EXPORT_ROWS) {
-      throw new BadRequestException({
-        code: 'EXPORT_TOO_LARGE',
-        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
-      });
-    }
+    assertExportLimit(totalItems);
 
     const categories = await this.prisma.category.findMany({
       where,
@@ -137,30 +139,23 @@ export class CategoriesService {
       },
     });
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Categories');
-
-    sheet.columns = [
+    const columns: ExcelColumn[] = [
       { header: 'Tên danh mục', key: 'name', width: 30 },
       { header: 'Slug', key: 'slug', width: 25 },
       { header: 'Danh mục cha', key: 'parent', width: 25 },
       { header: 'Số sản phẩm', key: 'productCount', width: 15 },
       { header: 'Ngày tạo', key: 'createdAt', width: 20 },
     ];
-    sheet.getRow(1).font = { bold: true };
 
-    categories.forEach((category) => {
-      sheet.addRow({
-        name: category.name,
-        slug: category.slug,
-        parent: category.parent?.name ?? '—',
-        productCount: category._count.products,
-        createdAt: category.createdAt.toLocaleDateString('vi-VN'),
-      });
-    });
+    const rows = categories.map((category) => ({
+      name: category.name,
+      slug: category.slug,
+      parent: category.parent?.name ?? '—',
+      productCount: category._count.products,
+      createdAt: formatDateVi(category.createdAt),
+    }));
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
+    return createExcelBuffer({ sheetName: 'Categories', columns, rows });
   }
 
   async update(id: string, dto: UpdateCategoryDto) {
@@ -198,8 +193,10 @@ export class CategoriesService {
         include: WITH_COUNT,
       });
     } catch (error) {
-      this.handleUniqueConstraintError(error);
-      throw error;
+      rethrowUniqueConstraint(
+        error,
+        'A category with a similar name already exists',
+      );
     }
   }
 
@@ -311,36 +308,12 @@ export class CategoriesService {
     return result;
   }
 
-  private handleUniqueConstraintError(error: unknown): void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
-      throw new ConflictException({
-        code: 'SLUG_ALREADY_IN_USE',
-        message: 'A category with a similar name already exists',
-      });
-    }
-  }
-
   private async generateUniqueSlug(name: string, excludeId?: string) {
-    const baseSlug = slugify(name, { lower: true, locale: 'vi', strict: true });
-    let slug = baseSlug;
-    let suffix = 1;
-
-    while (
-      await this.prisma.category.findFirst({
+    return ensureUniqueSlug(name, async (slug) => {
+      const existing = await this.prisma.category.findFirst({
         where: { slug, ...(excludeId && { id: { not: excludeId } }) },
-      })
-    ) {
-      slug = `${baseSlug}-${suffix}`;
-      suffix += 1;
-    }
-
-    if (!slug) {
-      throw new BadRequestException('Unable to generate slug from name');
-    }
-
-    return slug;
+      });
+      return !!existing;
+    });
   }
 }

@@ -7,7 +7,6 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import * as ExcelJS from 'exceljs';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthProvider, Prisma, Role } from '@prisma/client';
 
@@ -17,6 +16,14 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
 import { CloudinaryService } from '@/common/cloudinary/cloudinary.service';
+import {
+  getPagination,
+  paginated,
+  assertExportLimit,
+  createExcelBuffer,
+  formatDateVi,
+  type ExcelColumn,
+} from '@/common/utils';
 
 interface CreateUserInput {
   name: string;
@@ -62,8 +69,7 @@ export class UsersService {
   }
 
   async findAll(query: QueryUsersDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const { search, role, emailVerified, banned } = query;
 
     const where: Prisma.UserWhereInput = {
@@ -84,26 +90,14 @@ export class UsersService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.user.count({ where }),
     ]);
 
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return paginated(data, page, limit, totalItems);
   }
 
   async exportToExcel(query: QueryUsersDto): Promise<Buffer> {
@@ -124,15 +118,15 @@ export class UsersService {
       }),
     };
 
+    const totalItems = await this.prisma.user.count({ where });
+    assertExportLimit(totalItems);
+
     const users = await this.prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Users');
-
-    sheet.columns = [
+    const columns: ExcelColumn[] = [
       { header: 'Tên', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
       { header: 'Vai trò', key: 'role', width: 15 },
@@ -140,21 +134,17 @@ export class UsersService {
       { header: 'Xác thực email', key: 'emailVerified', width: 18 },
       { header: 'Ngày tham gia', key: 'createdAt', width: 20 },
     ];
-    sheet.getRow(1).font = { bold: true };
 
-    users.forEach((user) => {
-      sheet.addRow({
-        name: user.name,
-        email: user.email,
-        role: user.role === Role.ADMIN ? 'Quản trị viên' : 'Người dùng',
-        status: user.bannedAt ? 'Đã khoá' : 'Hoạt động',
-        emailVerified: user.emailVerified ? 'Đã xác thực' : 'Chưa xác thực',
-        createdAt: user.createdAt.toLocaleDateString('vi-VN'),
-      });
-    });
+    const rows = users.map((user) => ({
+      name: user.name,
+      email: user.email,
+      role: user.role === Role.ADMIN ? 'Quản trị viên' : 'Người dùng',
+      status: user.bannedAt ? 'Đã khoá' : 'Hoạt động',
+      emailVerified: user.emailVerified ? 'Đã xác thực' : 'Chưa xác thực',
+      createdAt: formatDateVi(user.createdAt),
+    }));
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
+    return createExcelBuffer({ sheetName: 'Users', columns, rows });
   }
 
   async create(data: CreateUserInput) {

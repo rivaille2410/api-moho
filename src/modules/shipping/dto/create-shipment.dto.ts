@@ -75,7 +75,13 @@ export class CreateShipmentDto {
     description: 'Scheduled delivery time',
   })
   @IsOptional()
-  @Transform(({ value }) => (value ? new Date(value) : undefined))
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    value instanceof Date
+      ? new Date(value)
+      : undefined,
+  )
   @IsDate()
   scheduledAt?: Date;
 

@@ -5,15 +5,10 @@ import {
   Param,
   Patch,
   Query,
-  UseGuards,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiOkResponse } from '@nestjs/swagger';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import {
   ApiListShipments,
@@ -23,8 +18,6 @@ import {
   ApiUpdateShipmentStatus,
 } from './shipping.swagger';
 import { ShipmentsService } from './shipments.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-import { CurrentUser } from '@/modules/auth/decorators/current-user.decorator';
 
 import { QueryShipmentsDto } from './dto/query-shipments.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
@@ -33,10 +26,10 @@ import { ShipmentResponseDto } from './dto/shipment-response.dto';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
 import { QueryShippableOrdersDto } from './dto/query-shippable-orders.dto';
 import { ShippableOrderResponseDto } from './dto/shippable-order-response.dto';
+import { Admin, CurrentUser } from '@/common/decorators';
 
 @ApiTags('Shipments')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('shipments')
 export class ShipmentsController {
   constructor(private readonly shipmentsService: ShipmentsService) {}

@@ -33,7 +33,11 @@ export class CloudinaryService {
           result: UploadApiResponse | undefined,
         ) => {
           if (error || !result) {
-            return reject(error);
+            return reject(
+              error instanceof Error
+                ? error
+                : new Error(error?.message ?? 'Cloudinary upload failed'),
+            );
           }
           resolve(result);
         },
@@ -63,7 +67,11 @@ export class CloudinaryService {
           result: UploadApiResponse | undefined,
         ) => {
           if (error || !result) {
-            return reject(error);
+            return reject(
+              error instanceof Error
+                ? error
+                : new Error(error?.message ?? 'Cloudinary upload failed'),
+            );
           }
           resolve(result);
         },
@@ -89,7 +97,11 @@ export class CloudinaryService {
           result: UploadApiResponse | undefined,
         ) => {
           if (error || !result) {
-            return reject(error);
+            return reject(
+              error instanceof Error
+                ? error
+                : new Error(error?.message ?? 'Cloudinary upload failed'),
+            );
           }
           resolve(result);
         },

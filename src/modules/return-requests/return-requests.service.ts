@@ -25,6 +25,7 @@ import { ApproveReturnRequestDto } from './dto/approve-return-request.dto';
 import { AppEvent } from '@/common/events/event-names';
 import { CloudinaryService } from '@/common/cloudinary/cloudinary.service';
 import { ReturnRequestCreatedEvent } from '@/common/events/return-request.events';
+import { getPagination, paginated } from '@/common/utils';
 
 const RETURN_INCLUDE = {
   items: {
@@ -80,8 +81,7 @@ export class ReturnRequestsService {
   }
 
   async findAll(query: QueryReturnRequestsDto, userId?: string) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
 
     const where: Prisma.ReturnRequestWhereInput = {
       ...(userId && { userId }),
@@ -109,27 +109,15 @@ export class ReturnRequestsService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.returnRequest.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
         include: RETURN_INCLUDE,
       }),
       this.prisma.returnRequest.count({ where }),
     ]);
 
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return paginated(data, page, limit, totalItems);
   }
 
   async create(userId: string, dto: CreateReturnRequestDto) {
