@@ -12,6 +12,7 @@ import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status
 
 import { PrismaService } from '@/prisma/prisma.service';
 import { StockMovementsService } from '@/modules/inventory/stock-movements/stock-movements.service';
+import { getPagination, paginated } from '@/common/utils';
 
 const INCLUDE = {
   items: {
@@ -65,22 +66,21 @@ export class PurchaseOrdersService {
   }
 
   async findAll(query: QueryPurchaseOrdersDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.purchaseOrder.findMany({
         where,
         include: INCLUDE,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.purchaseOrder.count({ where }),
     ]);
 
-    return this.paginate(data, totalItems, page, limit);
+    return paginated(data, page, limit, totalItems);
   }
 
   async create(dto: CreatePurchaseOrderDto, createdById?: string) {
@@ -240,26 +240,6 @@ export class PurchaseOrdersService {
     });
 
     return `${prefix}${String(count + 1).padStart(4, '0')}`;
-  }
-
-  private paginate<T>(
-    data: T[],
-    totalItems: number,
-    page: number,
-    limit: number,
-  ) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
   }
 
   private buildWhere(

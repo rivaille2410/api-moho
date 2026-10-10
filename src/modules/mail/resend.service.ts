@@ -2,6 +2,8 @@ import { Resend } from 'resend';
 import { ConfigService } from '@nestjs/config';
 import { Injectable, Logger } from '@nestjs/common';
 
+import type { AppConfig } from '@/config/app-config';
+
 import {
   VerifyEmailJobData,
   ResetPasswordJobData,
@@ -16,9 +18,11 @@ export class ResendService {
   private readonly resend: Resend;
   private readonly from: string;
 
-  constructor(private readonly configService: ConfigService) {
-    this.resend = new Resend(this.configService.get<string>('RESEND_API_KEY'));
-    this.from = this.configService.get<string>('MAIL_FROM')!;
+  constructor(private readonly configService: ConfigService<AppConfig, true>) {
+    this.resend = new Resend(
+      this.configService.getOrThrow('mail.resendApiKey', { infer: true }),
+    );
+    this.from = this.configService.getOrThrow('mail.from', { infer: true });
   }
 
   async sendResetPassword({ to, resetUrl }: ResetPasswordJobData) {

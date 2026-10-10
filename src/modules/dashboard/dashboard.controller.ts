@@ -1,6 +1,5 @@
-import { Role } from '@prisma/client';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 
 import {
   ApiGetLowStock,
@@ -21,15 +20,11 @@ import {
   DashboardStatsQueryDto,
 } from './dto/dashboard-query.dto';
 import { DashboardService } from './dashboard.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
+import { Admin } from '@/common/decorators';
 
 @ApiTags('Dashboard')
 @Controller('dashboard')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 

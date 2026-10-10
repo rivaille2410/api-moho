@@ -1,12 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { PageMetaDto } from '@/modules/inventory/common/page-meta.dto';
+import { PaginationMetaDto } from '@/common/dto';
 import { PurchaseOrderResponseDto } from './purchase-order-response.dto';
 
 export class PaginatedPurchaseOrdersResponseDto {
   @ApiProperty({ type: [PurchaseOrderResponseDto] })
   data: PurchaseOrderResponseDto[];
 
-  @ApiProperty({ type: PageMetaDto })
-  meta: PageMetaDto;
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
 }

@@ -5,15 +5,10 @@ import {
   Param,
   Patch,
   Query,
-  UseGuards,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import {
   ApiListPurchaseOrders,
@@ -22,19 +17,17 @@ import {
   ApiReceivePurchaseOrder,
   ApiUpdatePurchaseOrderStatus,
 } from './purchase-orders.swagger';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import { PurchaseOrdersService } from './purchase-orders.service';
-import { CurrentUser } from '@/modules/auth/decorators/current-user.decorator';
 
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import { PurchaseOrderResponseDto } from './dto/purchase-order-response.dto';
 import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status.dto';
+import { Admin, CurrentUser } from '@/common/decorators';
 
 @ApiTags('Purchase Orders')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
   constructor(private readonly purchaseOrdersService: PurchaseOrdersService) {}

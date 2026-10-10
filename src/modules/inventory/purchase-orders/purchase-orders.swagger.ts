@@ -18,11 +18,14 @@ export function ApiListPurchaseOrders() {
     ApiBearerAuth(),
     ApiOperation({
       summary: 'List purchase orders',
-      description: 'Retrieve a paginated list of purchase orders. Requires admin role.',
+      description:
+        'Retrieve a paginated list of purchase orders. Requires admin role.',
     }),
     ApiOkResponse({ type: PaginatedPurchaseOrdersResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
   );
 }
 
@@ -36,8 +39,12 @@ export function ApiCreatePurchaseOrder() {
     }),
     ApiCreatedResponse({ type: PurchaseOrderResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
-    ApiBadRequestResponse({ description: 'Validation failed, or supplier/warehouse/variant not found' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
+    ApiBadRequestResponse({
+      description: 'Validation failed, or supplier/warehouse/variant not found',
+    }),
   );
 }
 
@@ -46,11 +53,14 @@ export function ApiGetPurchaseOrderById() {
     ApiBearerAuth(),
     ApiOperation({
       summary: 'Get purchase order by id',
-      description: 'Retrieve a single purchase order with its items. Requires admin role.',
+      description:
+        'Retrieve a single purchase order with its items. Requires admin role.',
     }),
     ApiOkResponse({ type: PurchaseOrderResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
     ApiNotFoundResponse({ description: 'Purchase order not found' }),
   );
 }
@@ -65,7 +75,9 @@ export function ApiUpdatePurchaseOrderStatus() {
     }),
     ApiOkResponse({ type: PurchaseOrderResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
     ApiBadRequestResponse({ description: 'Invalid status transition' }),
     ApiNotFoundResponse({ description: 'Purchase order not found' }),
   );
@@ -81,9 +93,12 @@ export function ApiReceivePurchaseOrder() {
     }),
     ApiOkResponse({ type: PurchaseOrderResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
     ApiBadRequestResponse({
-      description: 'Purchase order not receivable, item mismatch, or quantity exceeds what remains',
+      description:
+        'Purchase order not receivable, item mismatch, or quantity exceeds what remains',
     }),
     ApiNotFoundResponse({ description: 'Purchase order not found' }),
   );

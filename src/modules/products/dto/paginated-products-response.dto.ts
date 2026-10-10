@@ -1,26 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-
+import { PaginationMetaDto } from '@/common/dto';
 import { ProductResponseDto } from './product-response.dto';
-
-class PaginationMetaDto {
-  @ApiProperty({ example: 1 })
-  page: number;
-
-  @ApiProperty({ example: 10 })
-  limit: number;
-
-  @ApiProperty({ example: 42 })
-  totalItems: number;
-
-  @ApiProperty({ example: 5 })
-  totalPages: number;
-
-  @ApiProperty({ example: true })
-  hasNextPage: boolean;
-
-  @ApiProperty({ example: false })
-  hasPreviousPage: boolean;
-}
 
 export class PaginatedProductsResponseDto {
   @ApiProperty({ type: [ProductResponseDto] })

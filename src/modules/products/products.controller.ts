@@ -8,7 +8,6 @@ import {
   Query,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   ParseUUIDPipe,
@@ -16,7 +15,6 @@ import {
   UseInterceptors,
   ParseFilePipeBuilder,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
@@ -36,10 +34,6 @@ import {
   ApiSetProductThumbnail,
 } from './products.swagger';
 import { ProductsService } from './products.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import { QueryProductsDto } from './dto/query-products.dto';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -47,13 +41,14 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
-import { BulkDeleteProductsDto } from './dto/builk-delete-products.dto';
-import { UpdateProductStatusDto } from './dto/update-product-status.dto';
+import { BulkDeleteProductsDto } from './dto/bulk-delete-products.dto';
 import { BulkDeleteProductImagesDto } from './dto/bulk-delete-product-images.dto';
+import { UpdateProductStatusDto } from './dto/update-product-status.dto';
+import { Admin } from '@/common/decorators';
+import { sendExcelFile, excelFilename } from '@/common/utils';
 
 @ApiTags('Products')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -79,13 +74,7 @@ export class ProductsController {
   @ApiExportProducts()
   async exportProducts(@Query() query: QueryProductsDto, @Res() res: Response) {
     const buffer = await this.productsService.exportToExcel(query);
-
-    res.set({
-      'Content-Type':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="products-${Date.now()}.xlsx"`,
-    });
-    res.send(buffer);
+    sendExcelFile(res, excelFilename('products'), buffer);
   }
 
   @Get(':id')

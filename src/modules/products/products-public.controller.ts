@@ -9,13 +9,13 @@ import {
   ApiListBestSellerProducts,
 } from './products.swagger';
 import { ProductsService } from './products.service';
-import { Public } from '@/common/decorators/public.decorator';
 
 import { ProductResponseDto } from './dto/product-response.dto';
 import { GetProductSlugsDto } from './dto/get-product-slugs.dto';
 import { GetAvailableColorsDto } from './dto/get-available-colors.dto';
 import { QueryPublicProductsDto } from './dto/query-public-products.dto';
 import { ProductSlugResponseDto } from './dto/product-slug-response.dto';
+import { Public } from '@/common/decorators';
 
 @ApiTags('Public Products')
 @Public()

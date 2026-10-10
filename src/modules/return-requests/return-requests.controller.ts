@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   Patch,
-  UseGuards,
   Controller,
   HttpStatus,
   ParseUUIDPipe,
@@ -19,7 +18,6 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { CreateReturnRequestDto } from './dto/create-return-request.dto';
 import { QueryReturnRequestsDto } from './dto/query-return-requests.dto';
 import { ReturnRequestResponseDto } from './dto/return-request-response.dto';
-
 import {
   ApiListReturnRequests,
   ApiCreateReturnRequest,
@@ -28,11 +26,9 @@ import {
   ApiAddReturnRequestImages,
 } from './return-requests.swagger';
 import { ReturnRequestsService } from './return-requests.service';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-import { CurrentUser } from '@/modules/auth/decorators/current-user.decorator';
+import { CurrentUser } from '@/common/decorators';
 
 @ApiTags('Return Requests')
-@UseGuards(JwtAuthGuard)
 @Controller('return-requests')
 export class ReturnRequestsController {
   constructor(private readonly returnRequestsService: ReturnRequestsService) {}
@@ -40,12 +36,12 @@ export class ReturnRequestsController {
   @Get()
   @ApiListReturnRequests()
   async findMine(
-    @CurrentUser() user: { id: string },
+    @CurrentUser('id') userId: string,
     @Query() query: QueryReturnRequestsDto,
   ) {
     const { data, meta } = await this.returnRequestsService.findAll(
       query,
-      user.id,
+      userId,
     );
     return {
       data: data.map((item) => new ReturnRequestResponseDto(item)),
@@ -56,22 +52,22 @@ export class ReturnRequestsController {
   @Post()
   @ApiCreateReturnRequest()
   async create(
-    @CurrentUser() user: { id: string },
+    @CurrentUser('id') userId: string,
     @Body() dto: CreateReturnRequestDto,
   ) {
-    const created = await this.returnRequestsService.create(user.id, dto);
+    const created = await this.returnRequestsService.create(userId, dto);
     return new ReturnRequestResponseDto(created);
   }
 
   @Get(':id')
   @ApiGetReturnRequestById()
   async findOne(
-    @CurrentUser() user: { id: string },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const found = await this.returnRequestsService.findByIdForUserOrThrow(
       id,
-      user.id,
+      userId,
     );
     return new ReturnRequestResponseDto(found);
   }
@@ -80,7 +76,7 @@ export class ReturnRequestsController {
   @UseInterceptors(FilesInterceptor('files', 5))
   @ApiAddReturnRequestImages()
   async addImages(
-    @CurrentUser() user: { id: string },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFiles(
       new ParseFilePipeBuilder()
@@ -95,7 +91,7 @@ export class ReturnRequestsController {
   ) {
     const updated = await this.returnRequestsService.addImages(
       id,
-      user.id,
+      userId,
       files,
     );
     return new ReturnRequestResponseDto(updated);
@@ -104,10 +100,10 @@ export class ReturnRequestsController {
   @Patch(':id/cancel')
   @ApiCancelReturnRequest()
   async cancel(
-    @CurrentUser() user: { id: string },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const updated = await this.returnRequestsService.cancel(id, user.id);
+    const updated = await this.returnRequestsService.cancel(id, userId);
     return new ReturnRequestResponseDto(updated);
   }
 }

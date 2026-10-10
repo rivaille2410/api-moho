@@ -12,7 +12,6 @@ import {
   ShipmentStatus,
   ConfirmationType,
 } from '@prisma/client';
-import * as ExcelJS from 'exceljs';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -29,6 +28,13 @@ import {
   OrderStatusChangedEvent,
 } from '@/common/events/order.events';
 import { ProductLowStockEvent } from '@/common/events/product.events';
+import {
+  getPagination,
+  paginated,
+  assertExportLimit,
+  createExcelBuffer,
+  type ExcelColumn,
+} from '@/common/utils';
 
 const ORDER_INCLUDE = {
   items: {
@@ -81,25 +87,21 @@ export class OrdersService {
   ) {}
 
   async findAll(query: QueryOrdersDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.order.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
         include: ORDER_INCLUDE,
       }),
       this.prisma.order.count({ where }),
     ]);
 
-    return {
-      data: data as OrderWithItems[],
-      meta: this.buildMeta(page, limit, totalItems),
-    };
+    return paginated(data as OrderWithItems[], page, limit, totalItems);
   }
 
   async findByIdOrThrow(id: string): Promise<OrderWithItems> {
@@ -287,14 +289,8 @@ export class OrdersService {
   async exportToExcel(query: QueryOrdersDto): Promise<Buffer> {
     const where = this.buildWhere(query);
 
-    const MAX_EXPORT_ROWS = 20000;
     const totalItems = await this.prisma.order.count({ where });
-    if (totalItems > MAX_EXPORT_ROWS) {
-      throw new BadRequestException({
-        code: 'EXPORT_TOO_LARGE',
-        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
-      });
-    }
+    assertExportLimit(totalItems);
 
     const orders = await this.prisma.order.findMany({
       where,
@@ -305,10 +301,7 @@ export class OrdersService {
       },
     });
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Orders');
-
-    sheet.columns = [
+    const columns: ExcelColumn[] = [
       { header: 'Mã đơn', key: 'orderNumber', width: 22 },
       { header: 'Người đặt', key: 'recipientName', width: 25 },
       { header: 'Số điện thoại', key: 'recipientPhone', width: 15 },
@@ -321,7 +314,6 @@ export class OrdersService {
       { header: 'Trạng thái đơn', key: 'status', width: 15 },
       { header: 'Ngày đặt', key: 'createdAt', width: 20 },
     ];
-    sheet.getRow(1).font = { bold: true };
 
     const statusLabel: Record<OrderStatus, string> = {
       PENDING: 'Chờ xác nhận',
@@ -349,9 +341,9 @@ export class OrdersService {
       PARTIALLY_REFUNDED: 'Hoàn tiền một phần',
     };
 
-    orders.forEach((order) => {
+    const rows = orders.map((order) => {
       const payment = order.payments[0];
-      sheet.addRow({
+      return {
         orderNumber: order.orderNumber,
         recipientName: order.recipientName,
         recipientPhone: order.recipientPhone,
@@ -365,11 +357,10 @@ export class OrdersService {
         paymentStatus: payment ? paymentStatusLabel[payment.status] : '',
         status: statusLabel[order.status],
         createdAt: order.createdAt.toLocaleDateString('vi-VN'),
-      });
+      };
     });
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
+    return createExcelBuffer({ sheetName: 'Orders', columns, rows });
   }
 
   async updateStatus(id: string, dto: UpdateOrderStatusDto, adminId: string) {
@@ -542,18 +533,6 @@ export class OrdersService {
       ...(search && {
         orderNumber: { contains: search, mode: Prisma.QueryMode.insensitive },
       }),
-    };
-  }
-
-  private buildMeta(page: number, limit: number, totalItems: number) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      page,
-      limit,
-      totalItems,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPreviousPage: page > 1,
     };
   }
 }

@@ -10,6 +10,7 @@ import { QuerySuppliersDto } from './dto/query-suppliers.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { BulkDeleteSuppliersDto } from './dto/bulk-delete-suppliers.dto';
+import { getPagination, paginated } from '@/common/utils';
 
 @Injectable()
 export class SuppliersService {
@@ -28,21 +29,20 @@ export class SuppliersService {
   }
 
   async findAll(query: QuerySuppliersDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.supplier.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.supplier.count({ where }),
     ]);
 
-    return this.paginate(data, totalItems, page, limit);
+    return paginated(data, page, limit, totalItems);
   }
 
   async create(dto: CreateSupplierDto) {
@@ -101,26 +101,6 @@ export class SuppliersService {
           'Cannot delete a supplier that has open (non-completed) purchase orders',
       });
     }
-  }
-
-  private paginate<T>(
-    data: T[],
-    totalItems: number,
-    page: number,
-    limit: number,
-  ) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
   }
 
   private buildWhere(query: QuerySuppliersDto): Prisma.SupplierWhereInput {

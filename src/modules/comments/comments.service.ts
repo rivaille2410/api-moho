@@ -12,6 +12,7 @@ import { CommentCreatedEvent } from '@/common/events/comment.events';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { QueryCommentsDto } from './dto/query-comments.dto';
 import { CommentWithRelations } from './dto/comment-response.dto';
+import { getPagination, buildPaginationMeta } from '@/common/utils';
 
 const COMMENT_USER_SELECT = {
   id: true,
@@ -33,16 +34,15 @@ export class CommentsService {
   ) {
     await this.ensureReviewOnProduct(slug, reviewId);
 
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
 
     const where = { reviewId, parentId: null };
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.reviewComment.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'asc' },
         include: {
           user: { select: COMMENT_USER_SELECT },
@@ -57,7 +57,7 @@ export class CommentsService {
 
     return {
       data: data as unknown as CommentWithRelations[],
-      meta: this.buildMeta(page, limit, totalItems),
+      meta: buildPaginationMeta(page, limit, totalItems),
     };
   }
 
@@ -118,7 +118,7 @@ export class CommentsService {
       ),
     );
 
-    return comment as unknown as CommentWithRelations;
+    return comment;
   }
 
   async remove(commentId: string, userId: string, isAdmin: boolean) {
@@ -162,17 +162,5 @@ export class CommentsService {
       throw new NotFoundException('Review not found on this product');
     }
     return review;
-  }
-
-  private buildMeta(page: number, limit: number, totalItems: number) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      page,
-      limit,
-      totalItems,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPreviousPage: page > 1,
-    };
   }
 }

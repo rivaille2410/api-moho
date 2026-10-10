@@ -6,10 +6,10 @@ import {
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { Role } from '@prisma/client';
-import type { StringValue } from 'ms';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
+import type { AppConfig } from '@/config/app-config';
 import { PrismaService } from '@/prisma/prisma.service';
 import { MailService } from '@/modules/mail/mail.service';
 import { UsersService } from '@/modules/users/users.service';
@@ -49,7 +49,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly config: ConfigService,
+    private readonly config: ConfigService<AppConfig, true>,
     private readonly mailService: MailService,
   ) {}
 
@@ -257,7 +257,9 @@ export class AuthService {
 
     try {
       payload = this.jwtService.verify<EmailVerificationPayload>(dto.token, {
-        secret: this.config.getOrThrow<string>('JWT_EMAIL_VERIFICATION_SECRET'),
+        secret: this.config.getOrThrow('jwt.emailVerificationSecret', {
+          infer: true,
+        }),
       });
     } catch {
       throw new UnauthorizedException({
@@ -327,15 +329,17 @@ export class AuthService {
     };
 
     const resetToken = this.jwtService.sign(payload, {
-      secret: this.config.getOrThrow<string>('JWT_PASSWORD_RESET_SECRET'),
-      expiresIn: this.config.getOrThrow<string>(
-        'JWT_PASSWORD_RESET_EXPIRES_IN',
-      ) as StringValue,
+      secret: this.config.getOrThrow('jwt.passwordResetSecret', {
+        infer: true,
+      }),
+      expiresIn: this.config.getOrThrow('jwt.passwordResetExpiresIn', {
+        infer: true,
+      }),
     });
 
-    const resetUrl = `${this.config.getOrThrow<string>(
-      'FRONTEND_URL',
-    )}/auth/reset-password?token=${resetToken}`;
+    const resetUrl = `${this.config.getOrThrow('frontendUrl', {
+      infer: true,
+    })}/auth/reset-password?token=${resetToken}`;
 
     await this.mailService.sendResetPasswordEmail(user.email, resetUrl);
 
@@ -350,7 +354,9 @@ export class AuthService {
 
     try {
       payload = this.jwtService.verify<PasswordResetPayload>(dto.token, {
-        secret: this.config.getOrThrow<string>('JWT_PASSWORD_RESET_SECRET'),
+        secret: this.config.getOrThrow('jwt.passwordResetSecret', {
+          infer: true,
+        }),
       });
     } catch {
       throw new UnauthorizedException({
@@ -420,15 +426,17 @@ export class AuthService {
     };
 
     const verifyToken = this.jwtService.sign(payload, {
-      secret: this.config.getOrThrow<string>('JWT_EMAIL_VERIFICATION_SECRET'),
-      expiresIn: this.config.getOrThrow<string>(
-        'JWT_EMAIL_VERIFICATION_EXPIRES_IN',
-      ) as StringValue,
+      secret: this.config.getOrThrow('jwt.emailVerificationSecret', {
+        infer: true,
+      }),
+      expiresIn: this.config.getOrThrow('jwt.emailVerificationExpiresIn', {
+        infer: true,
+      }),
     });
 
-    const verifyUrl = `${this.config.getOrThrow<string>(
-      'FRONTEND_URL',
-    )}/auth/verify-email?token=${verifyToken}`;
+    const verifyUrl = `${this.config.getOrThrow('frontendUrl', {
+      infer: true,
+    })}/auth/verify-email?token=${verifyToken}`;
 
     await this.mailService.sendVerificationEmail(email, verifyUrl);
   }
@@ -458,17 +466,17 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.config.getOrThrow<string>(
-        'JWT_ACCESS_EXPIRES_IN',
-      ) as StringValue,
+      secret: this.config.getOrThrow('jwt.accessSecret', { infer: true }),
+      expiresIn: this.config.getOrThrow('jwt.accessExpiresIn', {
+        infer: true,
+      }),
     });
 
     const refreshToken = this.jwtService.sign(payload, {
-      secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.config.getOrThrow<string>(
-        'JWT_REFRESH_EXPIRES_IN',
-      ) as StringValue,
+      secret: this.config.getOrThrow('jwt.refreshSecret', { infer: true }),
+      expiresIn: this.config.getOrThrow('jwt.refreshExpiresIn', {
+        infer: true,
+      }),
     });
 
     const tokenHash = await argon2.hash(refreshToken);

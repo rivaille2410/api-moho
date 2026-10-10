@@ -1,6 +1,5 @@
 import {
   Min,
-  Max,
   IsInt,
   IsEnum,
   IsArray,

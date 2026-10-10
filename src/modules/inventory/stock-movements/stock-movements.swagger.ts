@@ -22,7 +22,9 @@ export function ApiListStockMovements() {
     }),
     ApiOkResponse({ type: PaginatedStockMovementsResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
   );
 }
 
@@ -32,13 +34,16 @@ export function ApiCreateStockAdjustment() {
     ApiOperation({
       summary: 'Create a manual stock adjustment',
       description:
-        'Applies a signed delta to a variant\'s stock in a given warehouse (e.g. after a physical count) and records it in the ledger. Requires admin role.',
+        "Applies a signed delta to a variant's stock in a given warehouse (e.g. after a physical count) and records it in the ledger. Requires admin role.",
     }),
     ApiCreatedResponse({ type: StockMovementResponseDto }),
     ApiUnauthorizedResponse({ description: 'Missing or invalid access token' }),
-    ApiForbiddenResponse({ description: 'Only admins can access this resource' }),
+    ApiForbiddenResponse({
+      description: 'Only admins can access this resource',
+    }),
     ApiBadRequestResponse({
-      description: 'Validation failed, delta is zero, or resulting stock would be negative',
+      description:
+        'Validation failed, delta is zero, or resulting stock would be negative',
     }),
   );
 }

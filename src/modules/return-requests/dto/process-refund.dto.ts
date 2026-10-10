@@ -1,6 +1,6 @@
 import { RefundMethod } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { IsEnum, IsString, ValidateIf } from 'class-validator';
 
 export class ProcessRefundDto {
   @ApiProperty({ enum: RefundMethod })

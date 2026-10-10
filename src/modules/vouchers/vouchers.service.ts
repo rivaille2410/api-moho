@@ -11,7 +11,6 @@ import {
   VoucherScope,
   VoucherStatus,
 } from '@prisma/client';
-import * as ExcelJS from 'exceljs';
 import { PrismaService } from '@/prisma/prisma.service';
 
 import { QueryVouchersDto } from './dto/query-vouchers.dto';
@@ -19,6 +18,15 @@ import { CreateVoucherDto } from './dto/create-voucher.dto';
 import { UpdateVoucherDto } from './dto/update-voucher.dto';
 import { ValidateVoucherDto } from './dto/validate-voucher.dto';
 import { VoucherValidationResultDto } from './dto/voucher-validation-result.dto';
+
+import {
+  getPagination,
+  paginated,
+  assertExportLimit,
+  createExcelBuffer,
+  formatDateVi,
+  type ExcelColumn,
+} from '@/common/utils';
 
 const VOUCHER_INCLUDE = {
   categories: true,
@@ -45,21 +53,20 @@ export class VouchersService {
   }
 
   async findAll(query: QueryVouchersDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.voucher.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.voucher.count({ where }),
     ]);
 
-    return this.paginate(data, totalItems, page, limit);
+    return paginated(data, page, limit, totalItems);
   }
 
   async create(dto: CreateVoucherDto) {
@@ -108,37 +115,13 @@ export class VouchersService {
   async exportToExcel(query: QueryVouchersDto): Promise<Buffer> {
     const where = this.buildWhere(query);
 
-    const MAX_EXPORT_ROWS = 20000;
     const totalItems = await this.prisma.voucher.count({ where });
-    if (totalItems > MAX_EXPORT_ROWS) {
-      throw new BadRequestException({
-        code: 'EXPORT_TOO_LARGE',
-        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
-      });
-    }
+    assertExportLimit(totalItems);
 
     const vouchers = await this.prisma.voucher.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Vouchers');
-
-    sheet.columns = [
-      { header: 'Mã voucher', key: 'code', width: 18 },
-      { header: 'Tên voucher', key: 'name', width: 28 },
-      { header: 'Loại', key: 'type', width: 15 },
-      { header: 'Giá trị', key: 'value', width: 15 },
-      { header: 'Phạm vi', key: 'scope', width: 15 },
-      { header: 'Đã dùng', key: 'usedCount', width: 12 },
-      { header: 'Giới hạn', key: 'usageLimit', width: 12 },
-      { header: 'Trạng thái', key: 'status', width: 15 },
-      { header: 'Bắt đầu', key: 'startAt', width: 20 },
-      { header: 'Hết hạn', key: 'endAt', width: 20 },
-      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
-    ];
-    sheet.getRow(1).font = { bold: true };
 
     const typeLabel: Record<VoucherType, string> = {
       PERCENT: 'Phần trăm (%)',
@@ -159,27 +142,38 @@ export class VouchersService {
       DEPLETED: 'Hết lượt',
     };
 
-    vouchers.forEach((voucher) => {
-      sheet.addRow({
-        code: voucher.code,
-        name: voucher.name,
-        type: typeLabel[voucher.type],
-        value:
-          voucher.type === 'PERCENT'
-            ? `${voucher.value.toString()}%`
-            : voucher.value.toString(),
-        scope: scopeLabel[voucher.scope],
-        usedCount: voucher.usedCount,
-        usageLimit: voucher.usageLimit ?? 'Không giới hạn',
-        status: statusLabel[voucher.status],
-        startAt: voucher.startAt.toLocaleDateString('vi-VN'),
-        endAt: voucher.endAt.toLocaleDateString('vi-VN'),
-        createdAt: voucher.createdAt.toLocaleDateString('vi-VN'),
-      });
-    });
+    const columns: ExcelColumn[] = [
+      { header: 'Mã voucher', key: 'code', width: 18 },
+      { header: 'Tên voucher', key: 'name', width: 28 },
+      { header: 'Loại', key: 'type', width: 15 },
+      { header: 'Giá trị', key: 'value', width: 15 },
+      { header: 'Phạm vi', key: 'scope', width: 15 },
+      { header: 'Đã dùng', key: 'usedCount', width: 12 },
+      { header: 'Giới hạn', key: 'usageLimit', width: 12 },
+      { header: 'Trạng thái', key: 'status', width: 15 },
+      { header: 'Bắt đầu', key: 'startAt', width: 20 },
+      { header: 'Hết hạn', key: 'endAt', width: 20 },
+      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
+    ];
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
+    const rows = vouchers.map((voucher) => ({
+      code: voucher.code,
+      name: voucher.name,
+      type: typeLabel[voucher.type],
+      value:
+        voucher.type === 'PERCENT'
+          ? `${voucher.value.toString()}%`
+          : voucher.value.toString(),
+      scope: scopeLabel[voucher.scope],
+      usedCount: voucher.usedCount,
+      usageLimit: voucher.usageLimit ?? 'Không giới hạn',
+      status: statusLabel[voucher.status],
+      startAt: formatDateVi(voucher.startAt),
+      endAt: formatDateVi(voucher.endAt),
+      createdAt: formatDateVi(voucher.createdAt),
+    }));
+
+    return createExcelBuffer({ sheetName: 'Vouchers', columns, rows });
   }
 
   async update(id: string, dto: UpdateVoucherDto) {
@@ -342,7 +336,7 @@ export class VouchersService {
     if (dto.subtotal < Number(voucher.minOrderValue)) {
       throw new BadRequestException({
         code: 'VOUCHER_MIN_ORDER_NOT_MET',
-        message: `Order subtotal must be at least ${voucher.minOrderValue} to use this voucher`,
+        message: `Order subtotal must be at least ${voucher.minOrderValue.toString()} to use this voucher`,
       });
     }
 
@@ -417,26 +411,6 @@ export class VouchersService {
     }
     if (now < voucher.startAt) return VoucherStatus.DRAFT;
     return VoucherStatus.ACTIVE;
-  }
-
-  private paginate<T>(
-    data: T[],
-    totalItems: number,
-    page: number,
-    limit: number,
-  ) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
   }
 
   private buildWhere(query: QueryVouchersDto): Prisma.VoucherWhereInput {

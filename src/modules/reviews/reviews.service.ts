@@ -20,6 +20,7 @@ import { UpdateReviewDto } from './dto/update-review.dto';
 import { QueryReviewsDto } from './dto/query-reviews.dto';
 import { CreateCustomerReviewDto } from './dto/create-customer-review.dto';
 import { AuthorStats, ReviewWithRelations } from './dto/review-response.dto';
+import { getPagination, buildPaginationMeta } from '@/common/utils';
 
 const COMMENT_PREVIEW_TAKE = 2;
 
@@ -66,15 +67,14 @@ export class ReviewsService {
   ) {}
 
   async findAll(query: QueryReviewsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.review.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
         include: REVIEW_INCLUDE,
       }),
@@ -82,7 +82,10 @@ export class ReviewsService {
     ]);
 
     const withStats = await this.attachAuthorStats(data);
-    return { data: withStats, meta: this.buildMeta(page, limit, totalItems) };
+    return {
+      data: withStats,
+      meta: buildPaginationMeta(page, limit, totalItems),
+    };
   }
 
   async findByIdOrThrow(id: string): Promise<ReviewWithStats> {
@@ -208,8 +211,7 @@ export class ReviewsService {
       throw new NotFoundException('Product not found');
     }
 
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
 
     const where: Prisma.ReviewWhereInput = {
       productId: product.id,
@@ -220,8 +222,8 @@ export class ReviewsService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.review.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: {
           createdAt: query.sort === ReviewSort.OLDEST ? 'asc' : 'desc',
         },
@@ -231,7 +233,10 @@ export class ReviewsService {
     ]);
 
     const withStats = await this.attachAuthorStats(data);
-    return { data: withStats, meta: this.buildMeta(page, limit, totalItems) };
+    return {
+      data: withStats,
+      meta: buildPaginationMeta(page, limit, totalItems),
+    };
   }
 
   async getRatingSummaryPublic(slug: string) {
@@ -494,18 +499,6 @@ export class ReviewsService {
           { content: { contains: search, mode: Prisma.QueryMode.insensitive } },
         ],
       }),
-    };
-  }
-
-  private buildMeta(page: number, limit: number, totalItems: number) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      page,
-      limit,
-      totalItems,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPreviousPage: page > 1,
     };
   }
 }

@@ -7,12 +7,10 @@ import {
   Query,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 
 import {
@@ -23,19 +21,15 @@ import {
   ApiGetShippingZoneById,
 } from './shipping.swagger';
 import { ShippingZonesService } from './shipping-zones.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import { QueryShippingZonesDto } from './dto/query-shipping-zones.dto';
 import { CreateShippingZoneDto } from './dto/create-shipping-zone.dto';
 import { UpdateShippingZoneDto } from './dto/update-shipping-zone.dto';
 import { ShippingZoneResponseDto } from './dto/shipping-zone-response.dto';
+import { Admin } from '@/common/decorators';
 
 @ApiTags('Shipping Zones')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('shipping/zones')
 export class ShippingZonesController {
   constructor(private readonly zonesService: ShippingZonesService) {}

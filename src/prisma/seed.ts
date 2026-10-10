@@ -1330,7 +1330,7 @@ async function main() {
         scheduledAt,
         shippedAt,
         deliveredAt: deliveredAt ?? null,
-        createdById: admin!.id,
+        createdById: admin.id,
         createdAt: addHours(createdAt, 3),
         updatedAt: deliveredAt ?? shippedAt ?? scheduledAt,
       });
@@ -1385,7 +1385,7 @@ async function main() {
         payment.status = PaymentStatus.AWAITING_CONFIRM;
       } else {
         payment.status = PaymentStatus.CONFIRMED;
-        payment.confirmedById = admin!.id;
+        payment.confirmedById = admin.id;
         payment.confirmedAt = addHours(createdAt, int(1, 6));
         payment.adminNote = 'Đã nhận đủ tiền chuyển khoản';
       }
@@ -1393,7 +1393,7 @@ async function main() {
       payment.status = PaymentStatus.CONFIRMED;
       payment.collectedAmount = total;
       payment.courierName = courierName ?? pick(DRIVERS).name;
-      payment.confirmedById = admin!.id;
+      payment.confirmedById = admin.id;
       payment.confirmedAt = deliveredAt ?? null;
     }
     payments.push(payment);
@@ -1509,7 +1509,7 @@ async function main() {
       refundBankName: refundedAt ? customer.bank.name : null,
       refundBankAccountNumber: refundedAt ? customer.bankAccount : null,
       refundBankAccountHolder: refundedAt ? customer.holder : null,
-      refundedById: refundedAt ? admin!.id : null,
+      refundedById: refundedAt ? admin.id : null,
       refundProofImageUrl: refundProof,
       adminNote: approvedAt ? 'Đã xác nhận yêu cầu hợp lệ.' : null,
       rejectReason:
@@ -1560,7 +1560,7 @@ async function main() {
         referenceType: 'RETURN_REQUEST',
         referenceId: id,
         note: 'Nhập lại kho hàng hoàn trả',
-        createdById: admin!.id,
+        createdById: admin.id,
         createdAt: itemReceivedAt,
       });
     }
@@ -1604,7 +1604,7 @@ async function main() {
           : null,
       expectedAt: addDays(createdAt, 10),
       receivedAt,
-      createdById: admin!.id,
+      createdById: admin.id,
       createdAt,
       updatedAt: receivedAt ?? createdAt,
     });
@@ -1639,7 +1639,7 @@ async function main() {
             referenceType: 'PURCHASE_ORDER',
             referenceId: poId,
             note: 'Nhập hàng từ nhà cung cấp',
-            createdById: admin!.id,
+            createdById: admin.id,
             createdAt: receivedAt ?? addDays(createdAt, 6),
           });
         }
@@ -1666,7 +1666,7 @@ async function main() {
           referenceType: 'ORDER',
           referenceId: o.id,
           note: `Xuất kho đơn ${o.orderNumber}`,
-          createdById: admin!.id,
+          createdById: admin.id,
           createdAt: addHours(o.createdAt, 1),
         }),
       ),
@@ -1688,7 +1688,7 @@ async function main() {
       type: StockMovementType.ADJUSTMENT,
       quantity: a.delta,
       note: a.note,
-      createdById: admin!.id,
+      createdById: admin.id,
       createdAt: daysAgo(int(3, 40)),
     }),
   );
@@ -1700,7 +1700,7 @@ async function main() {
       type: StockMovementType.DAMAGED_OUT,
       quantity: int(1, 2),
       note: 'Hàng hư hỏng trong quá trình vận chuyển nội bộ',
-      createdById: admin!.id,
+      createdById: admin.id,
       createdAt: daysAgo(int(5, 45)),
     }),
   );
@@ -1763,7 +1763,7 @@ async function main() {
       comments.push({
         id: parentId,
         reviewId: id,
-        userId: admin!.id,
+        userId: admin.id,
         content:
           rating <= 3 ? ADMIN_REPLIES[2] : pick(ADMIN_REPLIES.slice(0, 2)),
         createdAt: at,
@@ -1878,7 +1878,7 @@ async function main() {
         link: `/dashboard/return-requests/${r.id}`,
         metadata: { returnRequestId: r.id },
         isRead: false,
-        createdAt: r.createdAt as Date,
+        createdAt: r.createdAt,
       }),
     );
   [...reviews]
@@ -1897,7 +1897,7 @@ async function main() {
         link: '/dashboard/reviews',
         metadata: { reviewId: r.id },
         isRead: false,
-        createdAt: r.createdAt as Date,
+        createdAt: r.createdAt,
       }),
     );
   allVariants

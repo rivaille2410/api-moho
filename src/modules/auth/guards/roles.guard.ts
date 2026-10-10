@@ -8,7 +8,7 @@ import { Role } from '@prisma/client';
 import { Reflector } from '@nestjs/core';
 
 import { AuthErrorCode } from '../auth.enum';
-import { ROLES_KEY } from '../decorators/roles.decorator';
+import { ROLES_KEY } from '@/common/decorators';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -24,9 +24,12 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const { user } = context.switchToHttp().getRequest();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user?: { role?: Role } }>();
+    const user = request.user;
 
-    if (!user || !requiredRoles.includes(user.role)) {
+    if (!user?.role || !requiredRoles.includes(user.role)) {
       throw new ForbiddenException({
         code: AuthErrorCode.FORBIDDEN_ROLE,
         message: 'You do not have permission to perform this action',

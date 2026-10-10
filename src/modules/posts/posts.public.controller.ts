@@ -6,8 +6,8 @@ import { QueryPublicPostsDto } from './dto/query-public-posts.dto';
 import { PostListItemResponseDto } from './dto/post-list-item-response.dto';
 
 import { PostsService } from './posts.service';
-import { Public } from '@/common/decorators/public.decorator';
 import { ApiListPublicPosts, ApiGetPublicPostBySlug } from './posts.swagger';
+import { Public } from '@/common/decorators';
 
 @ApiTags('Public Posts')
 @Public()

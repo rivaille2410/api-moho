@@ -8,12 +8,10 @@ import {
   Query,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 
@@ -28,19 +26,16 @@ import {
 } from './categories.swagger';
 import { CategoriesService } from './categories.service';
 
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
 import { CategoryResponseDto } from './dto/category-response.dto';
 import { BulkDeleteCategoriesDto } from './dto/bulk-delete-categories.dto';
+import { Admin } from '@/common/decorators';
+import { sendExcelFile, excelFilename } from '@/common/utils';
 
 @ApiTags('Categories')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
@@ -85,13 +80,7 @@ export class CategoriesController {
     @Res() res: Response,
   ) {
     const buffer = await this.categoriesService.exportToExcel(query);
-
-    res.set({
-      'Content-Type':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="categories-${Date.now()}.xlsx"`,
-    });
-    res.send(buffer);
+    sendExcelFile(res, excelFilename('categories'), buffer);
   }
 
   @Patch(':id')

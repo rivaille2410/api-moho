@@ -7,12 +7,10 @@ import {
   Query,
   Delete,
   HttpCode,
-  UseGuards,
   HttpStatus,
   Controller,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 
 import {
@@ -24,20 +22,16 @@ import {
   ApiBulkDeleteSuppliers,
 } from './suppliers.swagger';
 import { SuppliersService } from './suppliers.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 
 import { QuerySuppliersDto } from './dto/query-suppliers.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierResponseDto } from './dto/supplier-response.dto';
 import { BulkDeleteSuppliersDto } from './dto/bulk-delete-suppliers.dto';
+import { Admin } from '@/common/decorators';
 
 @ApiTags('Suppliers')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('suppliers')
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}

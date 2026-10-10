@@ -11,6 +11,7 @@ import { INBOUND_TYPES, OUTBOUND_TYPES } from './stock-movement.utils';
 import { QueryStockMovementsDto } from './dto/query-stock-movements.dto';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
 import { StockMovementResponseDto } from './dto/stock-movement-response.dto';
+import { getPagination, paginated } from '@/common/utils';
 
 type Tx = Prisma.TransactionClient;
 
@@ -35,26 +36,25 @@ export class StockMovementsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: QueryStockMovementsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const { page, limit, skip, take } = getPagination(query, 20);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.stockMovement.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
         include: MOVEMENT_INCLUDE,
       }),
       this.prisma.stockMovement.count({ where }),
     ]);
 
-    return this.paginate(
+    return paginated(
       data.map((movement) => new StockMovementResponseDto(movement)),
-      totalItems,
       page,
       limit,
+      totalItems,
     );
   }
 
@@ -233,26 +233,6 @@ export class StockMovementsService {
     });
 
     return defaultVariant.id;
-  }
-
-  private paginate<T>(
-    data: T[],
-    totalItems: number,
-    page: number,
-    limit: number,
-  ) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
   }
 
   private buildWhere(

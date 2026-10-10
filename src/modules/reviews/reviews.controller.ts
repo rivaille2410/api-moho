@@ -6,7 +6,6 @@ import {
   Patch,
   Query,
   Delete,
-  UseGuards,
   HttpCode,
   HttpStatus,
   Controller,
@@ -15,7 +14,6 @@ import {
   UseInterceptors,
   ParseFilePipeBuilder,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
@@ -23,7 +21,6 @@ import { QueryReviewsDto } from './dto/query-reviews.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { ReviewResponseDto } from './dto/review-response.dto';
-
 import {
   ApiListReviews,
   ApiCreateReview,
@@ -34,14 +31,10 @@ import {
   ApiRemoveReviewImage,
 } from './reviews.swagger';
 import { ReviewsService } from './reviews.service';
-import { Roles } from '@/modules/auth/decorators/roles.decorator';
-
-import { RolesGuard } from '@/modules/auth/guards/roles.guard';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
+import { Admin } from '@/common/decorators';
 
 @ApiTags('Reviews')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Admin()
 @Controller('reviews')
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}

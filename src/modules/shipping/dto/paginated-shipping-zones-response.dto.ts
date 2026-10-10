@@ -1,6 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { PaginationMetaDto } from './pagination-meta.dto';
+import { PaginationMetaDto } from '@/common/dto';
 import { ShippingZoneResponseDto } from './shipping-zone-response.dto';
 
 export class PaginatedShippingZonesResponseDto {

@@ -1,23 +1,21 @@
 import {
   Get,
-  Req,
   Post,
   Body,
   Patch,
   Param,
   Delete,
   HttpCode,
-  UseGuards,
   Controller,
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { CurrentUser } from '@/common/decorators';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
 import { AddressResponseDto } from './dto/address-response.dto';
-
 import {
   ApiCreateAddress,
   ApiUpdateAddress,
@@ -28,62 +26,56 @@ import {
 } from './addresses.swagger';
 import { AddressesService } from './addresses.service';
 
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-
 @ApiTags('Addresses')
 @Controller('addresses')
-@UseGuards(JwtAuthGuard)
 export class AddressesController {
   constructor(private readonly addressesService: AddressesService) {}
 
   @Get()
   @ApiListMyAddresses()
-  async findMine(@Req() req: { user: { id: string } }) {
-    const addresses = await this.addressesService.findAllForUser(req.user.id);
+  async findMine(@CurrentUser('id') userId: string) {
+    const addresses = await this.addressesService.findAllForUser(userId);
     return { data: addresses.map((a) => new AddressResponseDto(a)) };
   }
 
   @Get(':id')
   @ApiGetMyAddressById()
   async findOne(
-    @Req() req: { user: { id: string } },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const address = await this.addressesService.findByIdForUser(
-      id,
-      req.user.id,
-    );
+    const address = await this.addressesService.findByIdForUser(id, userId);
     return new AddressResponseDto(address);
   }
 
   @Post()
   @ApiCreateAddress()
   async create(
-    @Req() req: { user: { id: string } },
+    @CurrentUser('id') userId: string,
     @Body() dto: CreateAddressDto,
   ) {
-    const address = await this.addressesService.create(req.user.id, dto);
+    const address = await this.addressesService.create(userId, dto);
     return new AddressResponseDto(address);
   }
 
   @Patch(':id')
   @ApiUpdateAddress()
   async update(
-    @Req() req: { user: { id: string } },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAddressDto,
   ) {
-    const address = await this.addressesService.update(id, req.user.id, dto);
+    const address = await this.addressesService.update(id, userId, dto);
     return new AddressResponseDto(address);
   }
 
   @Patch(':id/default')
   @ApiSetDefaultAddress()
   async setDefault(
-    @Req() req: { user: { id: string } },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const address = await this.addressesService.setDefault(id, req.user.id);
+    const address = await this.addressesService.setDefault(id, userId);
     return new AddressResponseDto(address);
   }
 
@@ -91,9 +83,9 @@ export class AddressesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiDeleteAddress()
   async remove(
-    @Req() req: { user: { id: string } },
+    @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    await this.addressesService.remove(id, req.user.id);
+    await this.addressesService.remove(id, userId);
   }
 }

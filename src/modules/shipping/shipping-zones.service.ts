@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
 import { ZONE_INCLUDE } from './shipping.constants';
-import { buildPaginationMeta } from './shipping.utils';
+import { buildPaginationMeta } from '@/common/utils';
 import { QueryShippingZonesDto } from './dto/query-shipping-zones.dto';
 import { CreateShippingZoneDto } from './dto/create-shipping-zone.dto';
 import { UpdateShippingZoneDto } from './dto/update-shipping-zone.dto';

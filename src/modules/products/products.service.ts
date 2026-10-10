@@ -4,8 +4,6 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import slugify from 'slugify';
-import * as ExcelJS from 'exceljs';
 import { Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -20,6 +18,16 @@ import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
 
 import { CloudinaryService } from '@/common/cloudinary/cloudinary.service';
+import {
+  getPagination,
+  paginated,
+  ensureUniqueSlug,
+  assertExportLimit,
+  createExcelBuffer,
+  formatDateVi,
+  rethrowUniqueConstraint,
+  type ExcelColumn,
+} from '@/common/utils';
 
 const PRODUCT_INCLUDE = {
   materials: { orderBy: { sortOrder: 'asc' } },
@@ -60,66 +68,50 @@ export class ProductsService {
   }
 
   async findAll(query: QueryProductsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
         include: PRODUCT_INCLUDE,
       }),
       this.prisma.product.count({ where }),
     ]);
 
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-
-    return {
-      data: data.map((product) => this.withTotalStock(product)),
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return paginated(
+      data.map((product) => this.withTotalStock(product)),
+      page,
+      limit,
+      totalItems,
+    );
   }
 
   async findAllPublic(query: QueryPublicProductsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = await this.buildPublicWhere(query);
     const orderBy = this.buildPublicOrderBy(query.sortBy);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy,
         include: PRODUCT_INCLUDE,
       }),
       this.prisma.product.count({ where }),
     ]);
 
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-
-    return {
-      data: data.map((product) => this.withTotalStock(product)),
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return paginated(
+      data.map((product) => this.withTotalStock(product)),
+      page,
+      limit,
+      totalItems,
+    );
   }
 
   async getAvailableColorsPublic(categoryId?: string) {
@@ -316,8 +308,7 @@ export class ProductsService {
   }
 
   async findBestSellersPublic(query: QueryPublicProductsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = {
       ...(await this.buildPublicWhere(query)),
       soldCount: { gt: 0 },
@@ -326,27 +317,20 @@ export class ProductsService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: [{ soldCount: 'desc' }, { id: 'asc' }],
         include: PRODUCT_INCLUDE,
       }),
       this.prisma.product.count({ where }),
     ]);
 
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-
-    return {
-      data: data.map((product) => this.withTotalStock(product)),
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return paginated(
+      data.map((product) => this.withTotalStock(product)),
+      page,
+      limit,
+      totalItems,
+    );
   }
 
   private buildVariantFilter(
@@ -442,14 +426,8 @@ export class ProductsService {
   async exportToExcel(query: QueryProductsDto): Promise<Buffer> {
     const where = this.buildWhere(query);
 
-    const MAX_EXPORT_ROWS = 20000;
     const totalItems = await this.prisma.product.count({ where });
-    if (totalItems > MAX_EXPORT_ROWS) {
-      throw new BadRequestException({
-        code: 'EXPORT_TOO_LARGE',
-        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
-      });
-    }
+    assertExportLimit(totalItems);
 
     const products = await this.prisma.product.findMany({
       where,
@@ -457,10 +435,13 @@ export class ProductsService {
       include: { variants: true },
     });
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Products');
+    const statusLabel: Record<ProductStatus, string> = {
+      DRAFT: 'Bản nháp',
+      ACTIVE: 'Đang bán',
+      ARCHIVED: 'Ngừng bán',
+    };
 
-    sheet.columns = [
+    const columns: ExcelColumn[] = [
       { header: 'Tên sản phẩm', key: 'name', width: 30 },
       { header: 'SKU', key: 'sku', width: 20 },
       { header: 'Giá', key: 'price', width: 15 },
@@ -468,28 +449,17 @@ export class ProductsService {
       { header: 'Trạng thái', key: 'status', width: 15 },
       { header: 'Ngày tạo', key: 'createdAt', width: 20 },
     ];
-    sheet.getRow(1).font = { bold: true };
 
-    const statusLabel: Record<ProductStatus, string> = {
-      DRAFT: 'Bản nháp',
-      ACTIVE: 'Đang bán',
-      ARCHIVED: 'Ngừng bán',
-    };
+    const rows = products.map((product) => ({
+      name: product.name,
+      sku: product.sku,
+      price: product.price.toString(),
+      stock: product.variants.reduce((sum, v) => sum + v.stock, 0),
+      status: statusLabel[product.status],
+      createdAt: formatDateVi(product.createdAt),
+    }));
 
-    products.forEach((product) => {
-      const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
-      sheet.addRow({
-        name: product.name,
-        sku: product.sku,
-        price: product.price.toString(),
-        stock: totalStock,
-        status: statusLabel[product.status],
-        createdAt: product.createdAt.toLocaleDateString('vi-VN'),
-      });
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
+    return createExcelBuffer({ sheetName: 'Products', columns, rows });
   }
 
   async create(dto: CreateProductDto) {
@@ -897,38 +867,17 @@ export class ProductsService {
           message: 'SKU is already in use',
         });
       }
-      if (target.includes('slug')) {
-        throw new ConflictException({
-          code: 'SLUG_ALREADY_IN_USE',
-          message: 'Slug is already in use',
-        });
-      }
 
-      throw new ConflictException({
-        code: 'UNIQUE_CONSTRAINT_VIOLATION',
-        message: `Field ${target.join(', ')} must be unique`,
-      });
+      rethrowUniqueConstraint(error);
     }
   }
 
   private async generateUniqueSlug(name: string, excludeId?: string) {
-    const baseSlug = slugify(name, { lower: true, locale: 'vi', strict: true });
-    let slug = baseSlug;
-    let suffix = 1;
-
-    while (
-      await this.prisma.product.findFirst({
+    return ensureUniqueSlug(name, async (slug) => {
+      const existing = await this.prisma.product.findFirst({
         where: { slug, ...(excludeId && { id: { not: excludeId } }) },
-      })
-    ) {
-      slug = `${baseSlug}-${suffix}`;
-      suffix += 1;
-    }
-
-    if (!slug) {
-      throw new BadRequestException('Unable to generate slug from name');
-    }
-
-    return slug;
+      });
+      return !!existing;
+    });
   }
 }

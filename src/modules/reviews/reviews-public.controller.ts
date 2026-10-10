@@ -4,7 +4,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Controller,
   ParseUUIDPipe,
   UnauthorizedException,
@@ -18,15 +17,11 @@ import {
   ApiGetReviewRatingSummary,
 } from './reviews.swagger';
 import { ReviewsService } from './reviews.service';
-import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
-
-import { Public } from '@/common/decorators/public.decorator';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
-import { OptionalAuth } from '@/common/decorators/optional-auth.decorator';
 
 import { ReviewResponseDto } from './dto/review-response.dto';
 import { QueryPublicReviewsDto } from './dto/query-public-reviews.dto';
 import { CreateCustomerReviewDto } from './dto/create-customer-review.dto';
+import { Public, OptionalAuth, CurrentUser } from '@/common/decorators';
 
 @ApiTags('Public Reviews')
 @Controller('products/:slug/reviews')
@@ -34,7 +29,6 @@ export class ReviewsPublicController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
   @Get()
-  @UseGuards(JwtAuthGuard)
   @OptionalAuth()
   @ApiListPublicReviews()
   async findAllForProduct(
@@ -62,7 +56,6 @@ export class ReviewsPublicController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   @ApiCreateCustomerReview()
   async createMyReview(
     @Param('slug') slug: string,
@@ -82,7 +75,6 @@ export class ReviewsPublicController {
   }
 
   @Post(':reviewId/helpful')
-  @UseGuards(JwtAuthGuard)
   @ApiToggleReviewHelpful()
   async toggleHelpful(
     @Param('slug') slug: string,

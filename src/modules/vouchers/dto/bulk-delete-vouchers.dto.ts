@@ -1,10 +1,3 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsString } from 'class-validator';
+import { BulkIdsDto } from '@/common/dto';
 
-export class BulkDeleteVouchersDto {
-  @ApiProperty({ type: [String] })
-  @IsArray()
-  @ArrayMinSize(1)
-  @IsString({ each: true })
-  ids: string[];
-}
+export class BulkDeleteVouchersDto extends BulkIdsDto {}

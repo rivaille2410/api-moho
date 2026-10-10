@@ -1,11 +1,4 @@
-import {
-  Injectable,
-  ConflictException,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
-import slugify from 'slugify';
-import * as ExcelJS from 'exceljs';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PostStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
@@ -16,6 +9,17 @@ import {
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+
+import {
+  getPagination,
+  paginated,
+  ensureUniqueSlug,
+  assertExportLimit,
+  createExcelBuffer,
+  formatDateVi,
+  rethrowUniqueConstraint,
+  type ExcelColumn,
+} from '@/common/utils';
 
 @Injectable()
 export class PostsService {
@@ -34,40 +38,38 @@ export class PostsService {
   }
 
   async findAll(query: QueryPostsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildWhere(query);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.post.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.post.count({ where }),
     ]);
 
-    return this.paginate(data, totalItems, page, limit);
+    return paginated(data, page, limit, totalItems);
   }
 
   async findAllPublic(query: QueryPublicPostsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
+    const { page, limit, skip, take } = getPagination(query);
     const where = this.buildPublicWhere(query);
     const orderBy = this.buildPublicOrderBy(query.sortBy);
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.post.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take,
         orderBy,
       }),
       this.prisma.post.count({ where }),
     ]);
 
-    return this.paginate(data, totalItems, page, limit);
+    return paginated(data, page, limit, totalItems);
   }
 
   async findBySlugPublic(slug: string) {
@@ -102,39 +104,20 @@ export class PostsService {
         },
       });
     } catch (error) {
-      this.handleUniqueConstraintError(error);
-      throw error;
+      rethrowUniqueConstraint(error);
     }
   }
 
   async exportToExcel(query: QueryPostsDto): Promise<Buffer> {
     const where = this.buildWhere(query);
 
-    const MAX_EXPORT_ROWS = 20000;
     const totalItems = await this.prisma.post.count({ where });
-    if (totalItems > MAX_EXPORT_ROWS) {
-      throw new BadRequestException({
-        code: 'EXPORT_TOO_LARGE',
-        message: `Export exceeds ${MAX_EXPORT_ROWS} rows. Please narrow your filters.`,
-      });
-    }
+    assertExportLimit(totalItems);
 
     const posts = await this.prisma.post.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Posts');
-
-    sheet.columns = [
-      { header: 'Tiêu đề', key: 'title', width: 35 },
-      { header: 'Lượt xem', key: 'viewCount', width: 12 },
-      { header: 'Trạng thái', key: 'status', width: 15 },
-      { header: 'Ngày đăng', key: 'publishedAt', width: 20 },
-      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
-    ];
-    sheet.getRow(1).font = { bold: true };
 
     const statusLabel: Record<PostStatus, string> = {
       DRAFT: 'Bản nháp',
@@ -142,20 +125,23 @@ export class PostsService {
       ARCHIVED: 'Đã lưu trữ',
     };
 
-    posts.forEach((post) => {
-      sheet.addRow({
-        title: post.title,
-        viewCount: post.viewCount,
-        status: statusLabel[post.status],
-        publishedAt: post.publishedAt
-          ? post.publishedAt.toLocaleDateString('vi-VN')
-          : 'Chưa đăng',
-        createdAt: post.createdAt.toLocaleDateString('vi-VN'),
-      });
-    });
+    const columns: ExcelColumn[] = [
+      { header: 'Tiêu đề', key: 'title', width: 35 },
+      { header: 'Lượt xem', key: 'viewCount', width: 12 },
+      { header: 'Trạng thái', key: 'status', width: 15 },
+      { header: 'Ngày đăng', key: 'publishedAt', width: 20 },
+      { header: 'Ngày tạo', key: 'createdAt', width: 20 },
+    ];
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(buffer);
+    const rows = posts.map((post) => ({
+      title: post.title,
+      viewCount: post.viewCount,
+      status: statusLabel[post.status],
+      publishedAt: formatDateVi(post.publishedAt, 'Chưa đăng'),
+      createdAt: formatDateVi(post.createdAt),
+    }));
+
+    return createExcelBuffer({ sheetName: 'Posts', columns, rows });
   }
 
   async update(id: string, dto: UpdatePostDto) {
@@ -177,8 +163,7 @@ export class PostsService {
     try {
       return await this.prisma.post.update({ where: { id }, data });
     } catch (error) {
-      this.handleUniqueConstraintError(error);
-      throw error;
+      rethrowUniqueConstraint(error);
     }
   }
 
@@ -228,26 +213,6 @@ export class PostsService {
     return { deletedCount: result.count };
   }
 
-  private paginate<T>(
-    data: T[],
-    totalItems: number,
-    page: number,
-    limit: number,
-  ) {
-    const totalPages = limit > 0 ? Math.ceil(totalItems / limit) : 0;
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        totalItems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
-  }
-
   private buildWhere(query: QueryPostsDto): Prisma.PostWhereInput {
     const { search, status } = query;
     return {
@@ -288,47 +253,12 @@ export class PostsService {
     }
   }
 
-  private handleUniqueConstraintError(error: unknown): void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
-      const target = (error.meta?.target as string[]) ?? [];
-      if (target.includes('slug')) {
-        throw new ConflictException({
-          code: 'SLUG_ALREADY_IN_USE',
-          message: 'Slug is already in use',
-        });
-      }
-      throw new ConflictException({
-        code: 'UNIQUE_CONSTRAINT_VIOLATION',
-        message: `Field ${target.join(', ')} must be unique`,
-      });
-    }
-  }
-
   private async generateUniqueSlug(title: string, excludeId?: string) {
-    const baseSlug = slugify(title, {
-      lower: true,
-      locale: 'vi',
-      strict: true,
-    });
-    let slug = baseSlug;
-    let suffix = 1;
-
-    while (
-      await this.prisma.post.findFirst({
+    return ensureUniqueSlug(title, async (slug) => {
+      const existing = await this.prisma.post.findFirst({
         where: { slug, ...(excludeId && { id: { not: excludeId } }) },
-      })
-    ) {
-      slug = `${baseSlug}-${suffix}`;
-      suffix += 1;
-    }
-
-    if (!slug) {
-      throw new BadRequestException('Unable to generate slug from title');
-    }
-
-    return slug;
+      });
+      return !!existing;
+    });
   }
 }

@@ -1,6 +1,13 @@
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Min, Max, IsInt, IsString, IsBoolean, IsOptional } from 'class-validator';
+import {
+  Min,
+  Max,
+  IsInt,
+  IsString,
+  IsBoolean,
+  IsOptional,
+} from 'class-validator';
 
 export class QueryShippingZonesDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })
