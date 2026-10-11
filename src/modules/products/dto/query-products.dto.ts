@@ -44,7 +44,11 @@ export class QueryProductsDto {
   categoryId?: string;
 
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsBoolean()
   onSale?: boolean;
 
@@ -77,10 +81,10 @@ export class QueryProductsDto {
   maxPrice?: number;
 
   @ApiPropertyOptional({
-    example: ['Đỏ', 'Đen'],
+    example: ['#d2af84', '#644335'],
     type: [String],
     description:
-      'Filter by variant color name(s). Accepts repeated query params (colors=Đỏ&colors=Đen) or a comma-separated string (colors=Đỏ,Đen)',
+      'Filter by variant color hex value(s). Accepts repeated query params (colors=%23d2af84&colors=%23644335) or a comma-separated string.',
   })
   @IsOptional()
   @Transform(({ value }) => {
