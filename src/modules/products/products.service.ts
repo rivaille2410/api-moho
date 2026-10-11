@@ -121,20 +121,20 @@ export class ProductsService {
 
     const variants = await this.prisma.productVariant.findMany({
       where: {
-        colorName: { not: null },
+        colorHex: { not: null },
         product: {
           deletedAt: null,
           status: ProductStatus.ACTIVE,
           ...(categoryIds && { categoryId: { in: categoryIds } }),
         },
       },
-      distinct: ['colorName'],
-      select: { colorName: true, colorHex: true },
-      orderBy: { colorName: 'asc' },
+      distinct: ['colorHex'],
+      select: { name: true, colorName: true, colorHex: true },
+      orderBy: { colorHex: 'asc' },
     });
 
     return variants.map((v) => ({
-      name: v.colorName as string,
+      name: v.colorName ?? v.name,
       hex: v.colorHex,
     }));
   }
@@ -336,6 +336,7 @@ export class ProductsService {
   private buildVariantFilter(
     outOfStock?: boolean,
     colors?: string[],
+    colorField: 'colorName' | 'colorHex' = 'colorName',
   ): Prisma.ProductWhereInput['variants'] | undefined {
     const hasColors = !!colors?.length;
 
@@ -344,7 +345,9 @@ export class ProductsService {
     }
 
     const colorCondition: Prisma.ProductVariantWhereInput = hasColors
-      ? { colorName: { in: colors } }
+      ? colorField === 'colorHex'
+        ? { colorHex: { in: colors, mode: Prisma.QueryMode.insensitive } }
+        : { colorName: { in: colors } }
       : {};
 
     if (outOfStock === undefined) {
@@ -376,7 +379,7 @@ export class ProductsService {
       onSale,
     } = query;
 
-    const variantFilter = this.buildVariantFilter(outOfStock, colors);
+    const variantFilter = this.buildVariantFilter(outOfStock, colors, 'colorHex');
     const categoryIds = categoryId
       ? await this.getCategoryAndDescendantIds(categoryId)
       : undefined;
@@ -386,8 +389,11 @@ export class ProductsService {
       status: ProductStatus.ACTIVE,
       ...(categoryIds && { categoryId: { in: categoryIds } }),
       ...(variantFilter && { variants: variantFilter }),
-      ...(onSale && {
+      ...(onSale === true && {
         compareAtPrice: { not: null },
+      }),
+      ...(onSale === false && {
+        compareAtPrice: null,
       }),
       ...((minPrice !== undefined || maxPrice !== undefined) && {
         price: {
