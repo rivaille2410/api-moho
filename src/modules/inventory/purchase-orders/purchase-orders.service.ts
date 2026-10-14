@@ -152,6 +152,14 @@ export class PurchaseOrdersService {
     dto: ReceivePurchaseOrderDto,
     createdById?: string,
   ) {
+    const itemIds = dto.items.map((item) => item.purchaseOrderItemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new BadRequestException({
+        code: 'DUPLICATE_PURCHASE_ORDER_ITEMS',
+        message: 'Each purchase order item can appear only once per receipt',
+      });
+    }
+
     const po = await this.findByIdOrThrow(id);
 
     if (
@@ -185,10 +193,21 @@ export class PurchaseOrdersService {
       for (const receiveItem of dto.items) {
         const poItem = itemsById.get(receiveItem.purchaseOrderItemId)!;
 
-        await tx.purchaseOrderItem.update({
-          where: { id: poItem.id },
+        const claimed = await tx.purchaseOrderItem.updateMany({
+          where: {
+            id: poItem.id,
+            quantityReceived: {
+              lte: poItem.quantityOrdered - receiveItem.quantity,
+            },
+          },
           data: { quantityReceived: { increment: receiveItem.quantity } },
         });
+        if (claimed.count === 0) {
+          throw new BadRequestException({
+            code: 'RECEIPT_QUANTITY_EXCEEDS_REMAINING',
+            message: `Purchase order item ${poItem.id} no longer has enough quantity remaining`,
+          });
+        }
 
         await this.stockMovementsService.recordMovement(tx, {
           variantId: poItem.variantId,

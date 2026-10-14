@@ -149,56 +149,92 @@ export class ReturnRequestsService {
       });
     }
 
-    const existingReturnedQty = await this.prisma.returnRequestItem.groupBy({
-      by: ['orderItemId'],
-      where: {
-        orderItemId: { in: orderItemIds },
-        returnRequest: {
-          status: { notIn: [ReturnStatus.REJECTED, ReturnStatus.CANCELLED] },
-        },
-      },
-      _sum: { quantity: true },
-    });
-    const returnedQtyMap = new Map(
-      existingReturnedQty.map((r) => [r.orderItemId, r._sum.quantity ?? 0]),
-    );
+    const { returnRequest, refundAmount } = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
 
-    let refundAmount = new Prisma.Decimal(0);
-    const itemsToCreate = dto.items.map((input) => {
-      const orderItem = orderItems.find((i) => i.id === input.orderItemId)!;
-      const alreadyReturned = returnedQtyMap.get(orderItem.id) ?? 0;
-      const remaining = orderItem.quantity - alreadyReturned;
-
-      if (input.quantity > remaining) {
-        throw new BadRequestException({
-          code: 'RETURN_QUANTITY_EXCEEDS_PURCHASED',
-          message: `Requested quantity for "${orderItem.productName}" exceeds the remaining returnable quantity (${remaining})`,
+        const existingReturnedQty = await tx.returnRequestItem.groupBy({
+          by: ['orderItemId'],
+          where: {
+            orderItemId: { in: orderItemIds },
+            returnRequest: {
+              status: {
+                notIn: [ReturnStatus.REJECTED, ReturnStatus.CANCELLED],
+              },
+            },
+          },
+          _sum: { quantity: true },
         });
-      }
+        const returnedQtyMap = new Map(
+          existingReturnedQty.map((r) => [r.orderItemId, r._sum.quantity ?? 0]),
+        );
+        const existingRefunds = await tx.returnRequest.aggregate({
+          where: {
+            orderId: order.id,
+            status: {
+              notIn: [ReturnStatus.REJECTED, ReturnStatus.CANCELLED],
+            },
+          },
+          _sum: { refundAmount: true },
+        });
+        const merchandiseRefundLimit = Prisma.Decimal.max(
+          order.subtotal.sub(order.discount),
+          0,
+        );
+        let remainingRefund = merchandiseRefundLimit.sub(
+          existingRefunds._sum.refundAmount ?? 0,
+        );
 
-      refundAmount = refundAmount.add(orderItem.price.mul(input.quantity));
+        let refundAmount = new Prisma.Decimal(0);
+        const itemsToCreate = dto.items.map((input) => {
+          const orderItem = orderItems.find(
+            (item) => item.id === input.orderItemId,
+          )!;
+          const alreadyReturned = returnedQtyMap.get(orderItem.id) ?? 0;
+          const remaining = orderItem.quantity - alreadyReturned;
+          if (input.quantity > remaining) {
+            throw new BadRequestException({
+              code: 'RETURN_QUANTITY_EXCEEDS_PURCHASED',
+              message: `Requested quantity for "${orderItem.productName}" exceeds the remaining returnable quantity (${remaining})`,
+            });
+          }
 
-      return {
-        orderItemId: orderItem.id,
-        quantity: input.quantity,
-        unitPrice: orderItem.price,
-      };
-    });
+          const requestedGross = orderItem.price.mul(input.quantity);
+          const requestedNet = order.subtotal.gt(0)
+            ? requestedGross
+                .mul(merchandiseRefundLimit)
+                .div(order.subtotal)
+                .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP)
+            : new Prisma.Decimal(0);
+          const lineRefund = Prisma.Decimal.max(
+            Prisma.Decimal.min(requestedNet, remainingRefund),
+            0,
+          );
+          refundAmount = refundAmount.add(lineRefund);
+          remainingRefund = remainingRefund.sub(lineRefund);
+          return {
+            orderItemId: orderItem.id,
+            quantity: input.quantity,
+            unitPrice: orderItem.price,
+          };
+        });
 
-    const code = await this.generateUniqueCode();
-
-    const returnRequest = await this.prisma.returnRequest.create({
-      data: {
-        code,
-        orderId: order.id,
-        userId,
-        reason: dto.reason,
-        reasonNote: dto.reasonNote,
-        refundAmount,
-        items: { create: itemsToCreate },
+        const code = await this.generateUniqueCode();
+        const returnRequest = await tx.returnRequest.create({
+          data: {
+            code,
+            orderId: order.id,
+            userId,
+            reason: dto.reason,
+            reasonNote: dto.reasonNote,
+            refundAmount,
+            items: { create: itemsToCreate },
+          },
+          include: RETURN_INCLUDE,
+        });
+        return { returnRequest, refundAmount };
       },
-      include: RETURN_INCLUDE,
-    });
+    );
 
     this.eventEmitter.emit(
       AppEvent.RETURN_REQUEST_CREATED,
@@ -327,8 +363,8 @@ export class ReturnRequestsService {
       : null;
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.returnRequest.update({
-        where: { id: returnRequest.id },
+      const claimed = await tx.returnRequest.updateMany({
+        where: { id: returnRequest.id, status: ReturnStatus.ITEM_RECEIVED },
         data: {
           status: ReturnStatus.REFUNDED,
           refundMethod: dto.refundMethod,
@@ -340,13 +376,33 @@ export class ReturnRequestsService {
           refundedAt: new Date(),
         },
       });
+      if (claimed.count === 0) {
+        throw new ConflictException({
+          code: 'RETURN_STATUS_CHANGED',
+          message: 'Return request status changed; reload and try again',
+        });
+      }
 
       const payment = await tx.payment.findFirst({
         where: { orderId: returnRequest.orderId },
+        orderBy: { createdAt: 'desc' },
       });
 
       if (payment) {
-        const isFullRefund = returnRequest.refundAmount.gte(payment.amount);
+        const previousRefunds = await tx.returnRequest.aggregate({
+          where: {
+            orderId: returnRequest.orderId,
+            status: {
+              in: [ReturnStatus.REFUNDED, ReturnStatus.COMPLETED],
+            },
+            id: { not: returnRequest.id },
+          },
+          _sum: { refundAmount: true },
+        });
+        const totalRefunded = new Prisma.Decimal(
+          previousRefunds._sum.refundAmount ?? 0,
+        ).add(returnRequest.refundAmount);
+        const isFullRefund = totalRefunded.gte(payment.amount);
         await tx.payment.update({
           where: { id: payment.id },
           data: {

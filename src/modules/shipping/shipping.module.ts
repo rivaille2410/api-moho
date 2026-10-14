@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { OrdersModule } from '../orders/orders.module';
 import { ShipmentsService } from './shipments.service';
@@ -9,7 +9,7 @@ import { ShippingFeeController } from './shipping-fee.controller';
 import { ShippingZonesController } from './shipping-zones.controller';
 
 @Module({
-  imports: [OrdersModule],
+  imports: [forwardRef(() => OrdersModule)],
   controllers: [
     ShippingZonesController,
     ShippingFeeController,

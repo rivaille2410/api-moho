@@ -20,6 +20,15 @@ export class ValidateVoucherDto {
   subtotal: number;
 
   @ApiPropertyOptional({
+    example: 2500000,
+    description: 'Subtotal eligible for the voucher; defaults to subtotal',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  eligibleSubtotal?: number;
+
+  @ApiPropertyOptional({
     type: [String],
     description:
       'Category IDs present in cart, used to validate CATEGORY-scoped vouchers',

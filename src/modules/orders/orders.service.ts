@@ -1,4 +1,6 @@
 import {
+  Inject,
+  forwardRef,
   Injectable,
   ConflictException,
   NotFoundException,
@@ -17,6 +19,8 @@ import { PrismaService } from '@/prisma/prisma.service';
 
 import { AppEvent } from '@/common/events/event-names';
 import { ReviewsService } from '../reviews/reviews.service';
+import { ShippingFeeService } from '../shipping/shipping-fee.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
@@ -84,6 +88,9 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly reviewsService: ReviewsService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => ShippingFeeService))
+    private readonly shippingFeeService: ShippingFeeService,
+    private readonly vouchersService: VouchersService,
   ) {}
 
   async findAll(query: QueryOrdersDto) {
@@ -151,6 +158,88 @@ export class OrdersService {
 
   async create(userId: string, dto: CreateOrderDto): Promise<OrderWithItems> {
     const mergedItems = this.mergeDuplicateItems(dto.items);
+    const address = await this.prisma.address.findFirst({
+      where: { id: dto.addressId, userId },
+    });
+    if (!address) throw new NotFoundException('Address not found');
+
+    const shipping = await this.shippingFeeService.calculate({
+      provinceCode: address.provinceCode,
+      items: mergedItems.map(({ variantId, quantity }) => ({
+        variantId,
+        quantity,
+      })),
+    });
+    const productIds = [...new Set(mergedItems.map((item) => item.productId))];
+    const products = await this.prisma.productVariant.findMany({
+      where: { id: { in: mergedItems.map((item) => item.variantId) } },
+      select: {
+        id: true,
+        priceOverride: true,
+        product: { select: { id: true, categoryId: true, price: true } },
+      },
+    });
+    const categoryIds = [
+      ...new Set(products.map((variant) => variant.product.categoryId)),
+    ];
+    let eligibleSubtotal = shipping.subtotal;
+    if (dto.voucherCode) {
+      const voucherDetails = await this.prisma.voucher.findFirst({
+        where: { code: dto.voucherCode.trim().toUpperCase(), deletedAt: null },
+        include: { categories: true, products: true },
+      });
+      if (!voucherDetails) {
+        throw new NotFoundException({
+          code: 'VOUCHER_NOT_FOUND',
+          message: 'Voucher code does not exist',
+        });
+      }
+      if (voucherDetails.scope === 'PRODUCT') {
+        const eligible = new Set(
+          voucherDetails.products.map((item) => item.productId),
+        );
+        eligibleSubtotal = mergedItems.reduce((sum, item) => {
+          const variant = products.find(
+            (candidate) => candidate.id === item.variantId,
+          );
+          if (!variant || !eligible.has(variant.product.id)) return sum;
+          return (
+            sum +
+            Number(variant.priceOverride ?? variant.product.price) *
+              item.quantity
+          );
+        }, 0);
+      } else if (voucherDetails.scope === 'CATEGORY') {
+        const eligible = new Set(
+          voucherDetails.categories.map((item) => item.categoryId),
+        );
+        eligibleSubtotal = mergedItems.reduce((sum, item) => {
+          const variant = products.find(
+            (candidate) => candidate.id === item.variantId,
+          );
+          if (!variant || !eligible.has(variant.product.categoryId)) return sum;
+          return (
+            sum +
+            Number(variant.priceOverride ?? variant.product.price) *
+              item.quantity
+          );
+        }, 0);
+      }
+    }
+    const voucher = dto.voucherCode
+      ? await this.vouchersService.validateForOrder(userId, {
+          code: dto.voucherCode,
+          subtotal: shipping.subtotal,
+          eligibleSubtotal,
+          productIds,
+          categoryIds,
+        })
+      : null;
+    const shippingFee = new Prisma.Decimal(shipping.fee);
+    const discount = new Prisma.Decimal(voucher?.discountAmount ?? 0);
+    const total = new Prisma.Decimal(shipping.subtotal)
+      .add(shippingFee)
+      .sub(discount);
     const lowStockEvents: ProductLowStockEvent[] = [];
 
     const order = await this.prisma.$transaction(async (tx) => {
@@ -241,37 +330,93 @@ export class OrdersService {
         });
       }
 
-      await tx.product.updateMany({
-        where: { id: { in: itemsToCreate.map((i) => i.productId) } },
-        data: { soldCount: { increment: 1 } },
-      });
+      if (subtotal.toNumber() !== shipping.subtotal) {
+        throw new ConflictException({
+          code: 'CART_PRICE_CHANGED',
+          message:
+            'Product prices changed while placing the order; please review your cart',
+        });
+      }
+
+      for (const item of itemsToCreate) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { soldCount: { increment: item.quantity } },
+        });
+      }
 
       const orderNumber = await this.generateOrderNumber(tx);
       const paymentMethod = dto.paymentMethod ?? PaymentMethod.COD;
 
-      return tx.order.create({
+      const createdOrder = await tx.order.create({
         data: {
           orderNumber,
           userId,
-          recipientName: dto.recipientName,
-          recipientPhone: dto.recipientPhone,
-          shippingAddress: dto.shippingAddress,
+          recipientName: dto.recipientName ?? address.recipientName,
+          recipientPhone: dto.recipientPhone ?? address.recipientPhone,
+          shippingAddress:
+            dto.shippingAddress ??
+            `${address.addressDetail}, ${address.wardName}, ${address.provinceName}`,
+          addressId: address.id,
           note: dto.note,
+          requestedDeliveryDate: dto.deliveryDate
+            ? new Date(dto.deliveryDate)
+            : undefined,
           subtotal,
-          shippingFee: new Prisma.Decimal(0),
-          discount: new Prisma.Decimal(0),
-          total: subtotal,
+          shippingFee,
+          discount,
+          total,
+          voucherId: voucher?.voucherId,
+          voucherCode: voucher?.code,
           items: { createMany: { data: itemsToCreate } },
           payments: {
             create: {
               method: paymentMethod,
               confirmationType: resolveConfirmationType(paymentMethod),
-              amount: subtotal,
+              amount: total,
             },
           },
         },
         include: ORDER_INCLUDE,
       });
+
+      if (voucher) {
+        await tx.$queryRaw`SELECT id FROM vouchers WHERE id = ${voucher.voucherId} FOR UPDATE`;
+        const voucherRecord = await tx.voucher.findUniqueOrThrow({
+          where: { id: voucher.voucherId },
+          select: {
+            usageLimit: true,
+            usageLimitPerUser: true,
+            usedCount: true,
+          },
+        });
+        const userUsageCount = await tx.voucherUsage.count({
+          where: { voucherId: voucher.voucherId, userId },
+        });
+        if (
+          userUsageCount >= voucherRecord.usageLimitPerUser ||
+          (voucherRecord.usageLimit !== null &&
+            voucherRecord.usedCount >= voucherRecord.usageLimit)
+        ) {
+          throw new ConflictException({
+            code: 'VOUCHER_LIMIT_REACHED',
+            message: 'This voucher has reached its usage limit',
+          });
+        }
+        await tx.voucher.update({
+          where: { id: voucher.voucherId },
+          data: { usedCount: { increment: 1 } },
+        });
+        await tx.voucherUsage.create({
+          data: {
+            voucherId: voucher.voucherId,
+            userId,
+            orderId: createdOrder.id,
+            discountApplied: discount,
+          },
+        });
+      }
+      return createdOrder;
     });
 
     // Emit only after the transaction has committed successfully.
@@ -399,6 +544,26 @@ export class OrdersService {
     return updated;
   }
 
+  async cancelForUser(id: string, userId: string, reason?: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id, userId },
+      include: ORDER_INCLUDE,
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== OrderStatus.PENDING) {
+      throw new ConflictException({
+        code: 'ORDER_NOT_CANCELLABLE',
+        message: 'Only pending orders can be cancelled by the customer',
+      });
+    }
+    const updated = await this.cancelOrder(order, reason, OrderStatus.PENDING);
+    this.eventEmitter.emit(
+      AppEvent.ORDER_STATUS_CHANGED,
+      new OrderStatusChangedEvent(updated, order.status),
+    );
+    return updated;
+  }
+
   private async confirmAndUpdateStatus(
     order: OrderWithItems,
     newStatus: OrderStatus,
@@ -435,18 +600,39 @@ export class OrdersService {
   private async cancelOrder(
     order: OrderWithItems,
     cancelReason?: string,
+    expectedStatus: OrderStatus = order.status,
   ): Promise<OrderWithItems> {
     return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.order.updateMany({
+        where: { id: order.id, status: expectedStatus },
+        data: { status: OrderStatus.CANCELLED, cancelReason },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException({
+          code: 'ORDER_STATUS_CHANGED',
+          message: 'Order status changed; reload and try again',
+        });
+      }
+
       for (const item of order.items) {
         await tx.productVariant.update({
           where: { id: item.variantId },
           data: { stock: { increment: item.quantity } },
         });
       }
-      await tx.product.updateMany({
-        where: { id: { in: order.items.map((i) => i.productId) } },
-        data: { soldCount: { decrement: 1 } },
-      });
+      const quantitiesByProduct = new Map<string, number>();
+      for (const item of order.items) {
+        quantitiesByProduct.set(
+          item.productId,
+          (quantitiesByProduct.get(item.productId) ?? 0) + item.quantity,
+        );
+      }
+      for (const [productId, quantity] of quantitiesByProduct) {
+        await tx.product.updateMany({
+          where: { id: productId, soldCount: { gte: quantity } },
+          data: { soldCount: { decrement: quantity } },
+        });
+      }
 
       const latestPayment = order.payments[0];
       if (latestPayment) {

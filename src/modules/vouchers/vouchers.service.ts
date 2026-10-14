@@ -296,6 +296,72 @@ export class VouchersService {
       });
     }
 
+    const cart = await this.prisma.cart.findUnique({
+      where: { userId },
+      include: {
+        items: {
+          include: {
+            variant: {
+              include: {
+                product: {
+                  select: {
+                    id: true,
+                    categoryId: true,
+                    price: true,
+                    status: true,
+                    deletedAt: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const cartItems = cart?.items.filter(
+      (item) =>
+        item.variant.product.status === 'ACTIVE' &&
+        item.variant.product.deletedAt === null,
+    );
+    const cartSubtotal = cartItems
+      ? cartItems.reduce(
+          (sum, item) =>
+            sum +
+            Number(item.variant.priceOverride ?? item.variant.product.price) *
+              item.quantity,
+          0,
+        )
+      : dto.subtotal;
+    const productIds = cartItems
+      ? cartItems.map((item) => item.variant.product.id)
+      : dto.productIds;
+    const categoryIds = cartItems
+      ? cartItems.map((item) => item.variant.product.categoryId)
+      : dto.categoryIds;
+    let eligibleSubtotal = cartItems
+      ? cartItems.reduce((sum, item) => {
+          const productId = item.variant.product.id;
+          const categoryId = item.variant.product.categoryId;
+          const applies =
+            voucher.scope === VoucherScope.ALL ||
+            (voucher.scope === VoucherScope.PRODUCT &&
+              voucher.products.some(
+                (product) => product.productId === productId,
+              )) ||
+            (voucher.scope === VoucherScope.CATEGORY &&
+              voucher.categories.some(
+                (category) => category.categoryId === categoryId,
+              ));
+          return applies
+            ? sum +
+                Number(
+                  item.variant.priceOverride ?? item.variant.product.price,
+                ) *
+                  item.quantity
+            : sum;
+        }, 0)
+      : (dto.eligibleSubtotal ?? dto.subtotal);
+
     const now = new Date();
 
     if (voucher.status !== VoucherStatus.ACTIVE) {
@@ -333,16 +399,16 @@ export class VouchersService {
       });
     }
 
-    if (dto.subtotal < Number(voucher.minOrderValue)) {
+    if (cartSubtotal < Number(voucher.minOrderValue)) {
       throw new BadRequestException({
         code: 'VOUCHER_MIN_ORDER_NOT_MET',
         message: `Order subtotal must be at least ${voucher.minOrderValue.toString()} to use this voucher`,
       });
     }
 
-    this.assertScopeApplicable(voucher, dto.categoryIds, dto.productIds);
+    this.assertScopeApplicable(voucher, categoryIds, productIds);
 
-    const discountAmount = this.calculateDiscount(voucher, dto.subtotal);
+    const discountAmount = this.calculateDiscount(voucher, eligibleSubtotal);
 
     return new VoucherValidationResultDto(
       voucher.id,

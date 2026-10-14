@@ -106,6 +106,8 @@ export class OrderResponseDto {
   @ApiProperty() shippingAddress: string;
   @ApiProperty({ required: false }) note?: string;
   @ApiProperty({ required: false }) cancelReason?: string;
+  @ApiProperty({ required: false, nullable: true })
+  requestedDeliveryDate?: Date;
   @ApiProperty() hasActiveReturnRequest: boolean;
   @ApiProperty() hasCompletedReturn: boolean;
   @ApiProperty({ type: [OrderItemResponseDto] }) items: OrderItemResponseDto[];
@@ -130,6 +132,7 @@ export class OrderResponseDto {
     this.shippingAddress = order.shippingAddress;
     this.note = order.note ?? undefined;
     this.cancelReason = order.cancelReason ?? undefined;
+    this.requestedDeliveryDate = order.requestedDeliveryDate ?? undefined;
     this.hasActiveReturnRequest = (order.returnRequests ?? []).some(
       (r) => !INACTIVE_RETURN_STATUSES.includes(r.status),
     );

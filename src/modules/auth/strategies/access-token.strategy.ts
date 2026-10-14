@@ -34,6 +34,12 @@ export class AccessTokenStrategy extends PassportStrategy(
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
+    if (user.bannedAt) {
+      throw new UnauthorizedException({
+        code: 'ACCOUNT_BANNED',
+        message: 'This account has been banned',
+      });
+    }
 
     return {
       id: user.id,
