@@ -3,6 +3,7 @@ import {
   IsEnum,
   IsString,
   IsOptional,
+  IsDateString,
   ArrayMinSize,
   ValidateNested,
 } from 'class-validator';
@@ -14,21 +15,28 @@ import { CreateOrderItemDto } from './create-order-item.dto';
 
 export class CreateOrderDto {
   @ApiProperty({ example: 'John Doe' })
-  @IsString()
-  recipientName: string;
-
-  @ApiProperty({ example: '0901234567' })
-  @IsString()
-  recipientPhone: string;
-
-  @ApiProperty({ example: '123 Main Street, District 1, Ho Chi Minh City' })
-  @IsString()
-  shippingAddress: string;
-
-  @ApiProperty({ required: false, example: 'clx1234-address-id' })
   @IsOptional()
   @IsString()
-  addressId?: string;
+  recipientName?: string;
+
+  @ApiProperty({ example: '0901234567' })
+  @IsOptional()
+  @IsString()
+  recipientPhone?: string;
+
+  @ApiProperty({ example: '123 Main Street, District 1, Ho Chi Minh City' })
+  @IsOptional()
+  @IsString()
+  shippingAddress?: string;
+
+  @ApiProperty({ required: false, example: '2026-10-20' })
+  @IsOptional()
+  @IsDateString()
+  deliveryDate?: string;
+
+  @ApiProperty({ required: false, example: 'clx1234-address-id' })
+  @IsString()
+  addressId: string;
 
   @ApiProperty({
     required: false,

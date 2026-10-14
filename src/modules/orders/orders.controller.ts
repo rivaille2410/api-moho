@@ -16,6 +16,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { CancelMyOrderDto } from './dto/cancel-my-order.dto';
 import {
   ApiListOrders,
   ApiCreateOrder,
@@ -97,6 +98,20 @@ export class OrdersController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const order = await this.ordersService.findByIdForUser(id, userId);
+    return new OrderResponseDto(order);
+  }
+
+  @Post('me/:id/cancel')
+  async cancelMyOrder(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelMyOrderDto,
+  ) {
+    const order = await this.ordersService.cancelForUser(
+      id,
+      userId,
+      dto.reason,
+    );
     return new OrderResponseDto(order);
   }
 }
