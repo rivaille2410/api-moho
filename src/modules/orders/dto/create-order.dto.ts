@@ -3,7 +3,6 @@ import {
   IsEnum,
   IsString,
   IsOptional,
-  IsDateString,
   ArrayMinSize,
   ValidateNested,
 } from 'class-validator';
@@ -28,11 +27,6 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   shippingAddress?: string;
-
-  @ApiProperty({ required: false, example: '2026-10-20' })
-  @IsOptional()
-  @IsDateString()
-  deliveryDate?: string;
 
   @ApiProperty({ required: false, example: 'clx1234-address-id' })
   @IsString()

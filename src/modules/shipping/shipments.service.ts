@@ -166,11 +166,6 @@ export class ShipmentsService {
         });
       }
 
-      const order = await tx.order.findUniqueOrThrow({
-        where: { id: orderId },
-        select: { requestedDeliveryDate: true },
-      });
-
       const orderItems = await tx.orderItem.findMany({
         where: { orderId },
         select: { id: true, quantity: true },
@@ -185,8 +180,7 @@ export class ShipmentsService {
       return tx.shipment.create({
         data: {
           ...info,
-          scheduledAt:
-            info.scheduledAt ?? order.requestedDeliveryDate ?? undefined,
+          scheduledAt: info.scheduledAt,
           orderId,
           code: this.generateCode(),
           createdById,

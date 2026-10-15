@@ -17,6 +17,18 @@ import { VOLUMETRIC_DIVISOR } from './shipping.constants';
 export class ShippingFeeService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async calculateForOrder(dto: CalculateShippingFeeDto) {
+    const zone = await this.findZoneByProvince(dto.provinceCode);
+    if (!zone) {
+      const { subtotal, chargeableWeight } = await this.summarizeItems(
+        dto.items,
+      );
+      return { subtotal, fee: 0, chargeableWeight };
+    }
+
+    return this.calculate(dto);
+  }
+
   async calculate(
     dto: CalculateShippingFeeDto,
   ): Promise<ShippingFeeResponseDto> {

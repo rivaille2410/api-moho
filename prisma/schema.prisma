@@ -356,7 +356,6 @@ model Order {
   shippingAddress       String    @db.Text
   note                  String?   @db.Text
   cancelReason          String?
-  requestedDeliveryDate DateTime?
 
   addressId String?
   address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
