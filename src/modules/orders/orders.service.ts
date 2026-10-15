@@ -163,7 +163,7 @@ export class OrdersService {
     });
     if (!address) throw new NotFoundException('Address not found');
 
-    const shipping = await this.shippingFeeService.calculate({
+    const shipping = await this.shippingFeeService.calculateForOrder({
       provinceCode: address.provinceCode,
       items: mergedItems.map(({ variantId, quantity }) => ({
         variantId,
@@ -359,9 +359,6 @@ export class OrdersService {
             `${address.addressDetail}, ${address.wardName}, ${address.provinceName}`,
           addressId: address.id,
           note: dto.note,
-          requestedDeliveryDate: dto.deliveryDate
-            ? new Date(dto.deliveryDate)
-            : undefined,
           subtotal,
           shippingFee,
           discount,
