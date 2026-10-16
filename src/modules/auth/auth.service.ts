@@ -5,7 +5,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { Role } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import { Prisma, Role } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
@@ -182,7 +183,11 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  async refresh(userId: string, refreshToken: string) {
+  async refresh(
+    userId: string,
+    refreshToken: string,
+    sessionId?: string,
+  ) {
     if (!userId) {
       throw new UnauthorizedException({
         code: AuthErrorCode.REFRESH_TOKEN_INVALID,
@@ -190,66 +195,89 @@ export class AuthService {
       });
     }
 
-    const storedTokens = await this.prisma.refreshToken.findMany({
-      where: { userId, revoked: false, expiresAt: { gt: new Date() } },
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockUserForSessionChange(tx, userId);
+      const now = new Date();
+      const storedTokens = await tx.refreshToken.findMany({
+        where: {
+          userId,
+          revoked: false,
+          expiresAt: { gt: now },
+          ...(sessionId ? { sessionId } : {}),
+        },
+      });
+
+      const matched = await this.findMatchingToken(storedTokens, refreshToken);
+      if (!matched) {
+        throw new UnauthorizedException({
+          code: AuthErrorCode.REFRESH_TOKEN_INVALID,
+          message: 'Refresh token is invalid or has expired',
+        });
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+          name: true,
+          email: true,
+          avatar: true,
+          bannedAt: true,
+        },
+      });
+      if (!user) {
+        throw new UnauthorizedException({
+          code: AuthErrorCode.USER_NOT_FOUND,
+          message: 'User not found',
+        });
+      }
+      if (user.bannedAt) {
+        throw new UnauthorizedException({
+          code: AuthErrorCode.ACCOUNT_BANNED,
+          message: 'This account has been banned',
+        });
+      }
+
+      const consumed = await tx.refreshToken.updateMany({
+        where: { id: matched.id, revoked: false, expiresAt: { gt: now } },
+        data: { revoked: true },
+      });
+      if (consumed.count !== 1) {
+        throw new UnauthorizedException({
+          code: AuthErrorCode.REFRESH_TOKEN_INVALID,
+          message: 'Refresh token has already been used',
+        });
+      }
+
+      return this.issueTokens(user, matched.sessionId, tx);
     });
-
-    const matched = await this.findMatchingToken(storedTokens, refreshToken);
-    if (!matched) {
-      throw new UnauthorizedException({
-        code: AuthErrorCode.REFRESH_TOKEN_INVALID,
-        message: 'Refresh token is invalid or has expired',
-      });
-    }
-
-    await this.prisma.refreshToken.update({
-      where: { id: matched.id },
-      data: { revoked: true },
-    });
-
-    const user = await this.usersService.findById(matched.userId);
-
-    if (!user) {
-      throw new UnauthorizedException({
-        code: AuthErrorCode.USER_NOT_FOUND,
-        message: 'User not found',
-      });
-    }
-
-    if (user.bannedAt) {
-      throw new UnauthorizedException({
-        code: AuthErrorCode.ACCOUNT_BANNED,
-        message: 'This account has been banned',
-      });
-    }
-
-    return this.issueTokens(user);
   }
 
-  async logout(userId: string, refreshToken: string) {
-    const storedTokens = await this.prisma.refreshToken.findMany({
-      where: {
-        userId,
-        revoked: false,
-      },
+  async logout(userId: string, refreshToken: string, sessionId?: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const lockedUsers = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM users WHERE id = ${userId} FOR UPDATE
+      `;
+      if (lockedUsers.length === 0) return;
+
+      let targetSessionId = sessionId;
+      if (!targetSessionId) {
+        // Compatibility for refresh tokens issued before session ids existed.
+        const tokens = await tx.refreshToken.findMany({ where: { userId } });
+        const matched = await this.findMatchingToken(tokens, refreshToken);
+        targetSessionId = matched?.sessionId;
+      }
+
+      if (targetSessionId) {
+        await tx.refreshToken.updateMany({
+          where: { userId, sessionId: targetSessionId, revoked: false },
+          data: { revoked: true },
+        });
+      }
     });
 
-    const matched = await this.findMatchingToken(storedTokens, refreshToken);
-
-    if (matched) {
-      await this.prisma.refreshToken.update({
-        where: {
-          id: matched.id,
-        },
-        data: {
-          revoked: true,
-        },
-      });
-    }
-
-    return {
-      message: 'Logged out successfully',
-    };
+    return { message: 'Logged out successfully' };
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
@@ -446,6 +474,7 @@ export class AuthService {
       id: string;
       userId: string;
       tokenHash: string;
+      sessionId: string;
     }[],
     rawToken: string,
   ) {
@@ -458,39 +487,48 @@ export class AuthService {
     return null;
   }
 
-  private async issueTokens(user: AuthUser) {
+  private async lockUserForSessionChange(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    if (rows.length === 0) {
+      throw new UnauthorizedException({
+        code: AuthErrorCode.USER_NOT_FOUND,
+        message: 'User not found',
+      });
+    }
+  }
+
+  private async issueTokens(
+    user: AuthUser,
+    sessionId: string = randomUUID(),
+    tx?: Prisma.TransactionClient,
+  ) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      sid: sessionId,
     };
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.config.getOrThrow('jwt.accessSecret', { infer: true }),
-      expiresIn: this.config.getOrThrow('jwt.accessExpiresIn', {
-        infer: true,
-      }),
+      expiresIn: this.config.getOrThrow('jwt.accessExpiresIn', { infer: true }),
     });
-
     const refreshToken = this.jwtService.sign(payload, {
       secret: this.config.getOrThrow('jwt.refreshSecret', { infer: true }),
-      expiresIn: this.config.getOrThrow('jwt.refreshExpiresIn', {
-        infer: true,
-      }),
+      expiresIn: this.config.getOrThrow('jwt.refreshExpiresIn', { infer: true }),
     });
 
     const tokenHash = await argon2.hash(refreshToken);
-
     const expiresAt = new Date();
-
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    await this.prisma.refreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash,
-        expiresAt,
-      },
+    await (tx ?? this.prisma).refreshToken.create({
+      data: { userId: user.id, sessionId, tokenHash, expiresAt },
     });
 
     return {
@@ -505,4 +543,5 @@ export class AuthService {
       },
     };
   }
+
 }

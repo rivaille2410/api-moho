@@ -138,9 +138,9 @@ export class AuthController {
   @ApiRefresh()
   refresh(
     @Body() _dto: RefreshTokenDto,
-    @CurrentUser() user: { id: string; refreshToken: string },
+    @CurrentUser() user: { id: string; refreshToken: string; sessionId?: string },
   ) {
-    return this.authService.refresh(user.id, user.refreshToken);
+    return this.authService.refresh(user.id, user.refreshToken, user.sessionId);
   }
 
   @Public()
@@ -149,9 +149,9 @@ export class AuthController {
   @ApiLogout()
   logout(
     @Body() _dto: RefreshTokenDto,
-    @CurrentUser() user: { id: string; refreshToken: string },
+    @CurrentUser() user: { id: string; refreshToken: string; sessionId?: string },
   ) {
-    return this.authService.logout(user.id, user.refreshToken);
+    return this.authService.logout(user.id, user.refreshToken, user.sessionId);
   }
 
   @ApiBearerAuth()
