@@ -1,5 +1,5 @@
 import { OmitType } from '@nestjs/swagger';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { QueryProductsDto } from './query-products.dto';
 
@@ -12,7 +12,13 @@ export enum PublicProductSortBy {
 
 export class QueryPublicProductsDto extends OmitType(QueryProductsDto, [
   'status',
+  'page',
 ] as const) {
+  @ApiPropertyOptional({ description: 'Opaque cursor returned as meta.nextCursor' })
+  @IsOptional()
+  @IsString()
+  cursor?: string;
+
   @ApiPropertyOptional({
     enum: PublicProductSortBy,
     default: PublicProductSortBy.NEWEST,

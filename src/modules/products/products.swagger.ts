@@ -43,9 +43,25 @@ export function ApiListPublicProducts() {
     ApiOperation({
       summary: 'List public products',
       description:
-        'Retrieve a paginated list of ACTIVE products for storefront use. No authentication required.',
+        'Retrieve a cursor-paginated list of ACTIVE products. Pass meta.nextCursor as cursor to load the next batch. No authentication required.',
     }),
-    ApiOkResponse({ type: PaginatedProductsResponseDto }),
+    ApiOkResponse({
+      schema: {
+        properties: {
+          data: {
+            type: 'array',
+            items: { $ref: getSchemaPath(ProductResponseDto) },
+          },
+          meta: {
+            properties: {
+              nextCursor: { type: 'string', nullable: true },
+              hasNextPage: { type: 'boolean' },
+              totalItems: { type: 'number' },
+            },
+          },
+        },
+      },
+    }),
   );
 }
 
@@ -54,9 +70,25 @@ export function ApiListBestSellerProducts() {
     ApiOperation({
       summary: 'List best-selling public products',
       description:
-        'Retrieve a paginated list of ACTIVE products sorted by soldCount descending, for storefront use. No authentication required.',
+        'Retrieve a cursor-paginated list of ACTIVE products sorted by soldCount descending. Pass meta.nextCursor as cursor to load the next batch. No authentication required.',
     }),
-    ApiOkResponse({ type: PaginatedProductsResponseDto }),
+    ApiOkResponse({
+      schema: {
+        properties: {
+          data: {
+            type: 'array',
+            items: { $ref: getSchemaPath(ProductResponseDto) },
+          },
+          meta: {
+            properties: {
+              nextCursor: { type: 'string', nullable: true },
+              hasNextPage: { type: 'boolean' },
+              totalItems: { type: 'number' },
+            },
+          },
+        },
+      },
+    }),
   );
 }
 
