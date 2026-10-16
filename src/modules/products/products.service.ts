@@ -91,27 +91,143 @@ export class ProductsService {
   }
 
   async findAllPublic(query: QueryPublicProductsDto) {
-    const { page, limit, skip, take } = getPagination(query);
     const where = await this.buildPublicWhere(query);
-    const orderBy = this.buildPublicOrderBy(query.sortBy);
+    return this.findPublicCursorPage(
+      query,
+      where,
+      query.sortBy ?? PublicProductSortBy.NEWEST,
+    );
+  }
 
-    const [data, totalItems] = await this.prisma.$transaction([
+  private encodePublicProductsCursor(
+    product: ProductWithRelations,
+    sortBy: PublicProductSortBy,
+  ): string {
+    const value =
+      sortBy === PublicProductSortBy.NEWEST
+        ? product.createdAt.toISOString()
+        : sortBy === PublicProductSortBy.PRICE_ASC ||
+            sortBy === PublicProductSortBy.PRICE_DESC
+          ? product.price.toString()
+          : String(product.soldCount);
+
+    return Buffer.from(JSON.stringify({ id: product.id, sortBy, value })).toString(
+      'base64url',
+    );
+  }
+
+  private decodePublicProductsCursor(
+    cursor: string,
+    expectedSort: PublicProductSortBy,
+  ): { id: string; value: string } {
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(cursor, 'base64url').toString('utf-8'),
+      ) as { id?: unknown; sortBy?: unknown; value?: unknown };
+      if (
+        typeof decoded.id !== 'string' ||
+        typeof decoded.value !== 'string' ||
+        decoded.sortBy !== expectedSort
+      ) {
+        throw new Error('Cursor does not match the requested sort');
+      }
+      return { id: decoded.id, value: decoded.value };
+    } catch {
+      throw new BadRequestException('Invalid cursor');
+    }
+  }
+
+  private buildPublicCursorWhere(
+    cursor: { id: string; value: string },
+    sortBy: PublicProductSortBy,
+  ): Prisma.ProductWhereInput {
+    const idAfter = { id: { gt: cursor.id } };
+
+    switch (sortBy) {
+      case PublicProductSortBy.NEWEST: {
+        const value = new Date(cursor.value);
+        if (Number.isNaN(value.getTime())) {
+          throw new BadRequestException('Invalid cursor');
+        }
+        return {
+          OR: [
+            { createdAt: { lt: value } },
+            { createdAt: { equals: value }, ...idAfter },
+          ],
+        };
+      }
+      case PublicProductSortBy.PRICE_ASC:
+      case PublicProductSortBy.PRICE_DESC: {
+        let price: Prisma.Decimal;
+        try {
+          price = new Prisma.Decimal(cursor.value);
+        } catch {
+          throw new BadRequestException('Invalid cursor');
+        }
+        const comparison =
+          sortBy === PublicProductSortBy.PRICE_ASC ? 'gt' : 'lt';
+        return {
+          OR: [
+            { price: { [comparison]: price } },
+            { price: { equals: price }, ...idAfter },
+          ],
+        };
+      }
+      case PublicProductSortBy.BEST_SELLING: {
+        const soldCount = Number(cursor.value);
+        if (!Number.isInteger(soldCount)) {
+          throw new BadRequestException('Invalid cursor');
+        }
+        return {
+          OR: [
+            { soldCount: { lt: soldCount } },
+            { soldCount, ...idAfter },
+          ],
+        };
+      }
+    }
+    throw new BadRequestException('Invalid cursor');
+  }
+
+  private async findPublicCursorPage(
+    query: QueryPublicProductsDto,
+    baseWhere: Prisma.ProductWhereInput,
+    sortBy: PublicProductSortBy,
+  ) {
+    const limit = query.limit ?? 10;
+    const cursorWhere = query.cursor
+      ? this.buildPublicCursorWhere(
+          this.decodePublicProductsCursor(query.cursor, sortBy),
+          sortBy,
+        )
+      : undefined;
+    const where: Prisma.ProductWhereInput = cursorWhere
+      ? { AND: [baseWhere, cursorWhere] }
+      : baseWhere;
+    const [products, totalItems] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        skip,
-        take,
-        orderBy,
+        take: limit + 1,
+        orderBy: this.buildPublicOrderBy(sortBy),
         include: PRODUCT_INCLUDE,
       }),
-      this.prisma.product.count({ where }),
+      this.prisma.product.count({ where: baseWhere }),
     ]);
+    const hasNextPage = products.length > limit;
+    const data = products.slice(0, limit);
+    const lastProduct = data.at(-1);
 
-    return paginated(
-      data.map((product) => this.withTotalStock(product)),
-      page,
-      limit,
-      totalItems,
-    );
+    return {
+      data: data.map((product) => this.withTotalStock(product)),
+      meta: {
+        totalItems,
+        hasNextPage,
+        nextCursor:
+          hasNextPage && lastProduct
+            ? this.encodePublicProductsCursor(lastProduct, sortBy)
+            : null,
+      },
+    };
   }
 
   async getAvailableColorsPublic(categoryId?: string) {
@@ -146,14 +262,14 @@ export class ProductsService {
     | Prisma.ProductOrderByWithRelationInput[] {
     switch (sortBy) {
       case PublicProductSortBy.PRICE_ASC:
-        return { price: 'asc' };
+        return [{ price: 'asc' }, { id: 'asc' }];
       case PublicProductSortBy.PRICE_DESC:
-        return { price: 'desc' };
+        return [{ price: 'desc' }, { id: 'asc' }];
       case PublicProductSortBy.BEST_SELLING:
         return [{ soldCount: 'desc' }, { id: 'asc' }];
       case PublicProductSortBy.NEWEST:
       default:
-        return { createdAt: 'desc' };
+        return [{ createdAt: 'desc' }, { id: 'asc' }];
     }
   }
 
@@ -308,28 +424,14 @@ export class ProductsService {
   }
 
   async findBestSellersPublic(query: QueryPublicProductsDto) {
-    const { page, limit, skip, take } = getPagination(query);
     const where = {
       ...(await this.buildPublicWhere(query)),
       soldCount: { gt: 0 },
     };
-
-    const [data, totalItems] = await this.prisma.$transaction([
-      this.prisma.product.findMany({
-        where,
-        skip,
-        take,
-        orderBy: [{ soldCount: 'desc' }, { id: 'asc' }],
-        include: PRODUCT_INCLUDE,
-      }),
-      this.prisma.product.count({ where }),
-    ]);
-
-    return paginated(
-      data.map((product) => this.withTotalStock(product)),
-      page,
-      limit,
-      totalItems,
+    return this.findPublicCursorPage(
+      query,
+      where,
+      PublicProductSortBy.BEST_SELLING,
     );
   }
 
